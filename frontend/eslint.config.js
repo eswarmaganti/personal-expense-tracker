@@ -16,17 +16,20 @@ export default tseslint.config(
       js.configs.recommended,
       ...tseslint.configs.recommended,
     ],
+
     languageOptions: {
       globals: {
         ...globals.browser,
       },
     },
+
     plugins: {
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
     },
+
     rules: {
-      ...reactHooks.configs.flat.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
 
       "react-refresh/only-export-components": [
         "warn",
