@@ -7,8 +7,6 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 import { settingsApi, type FixedExpenseOut } from '@/api/api'
 import {
-  categorySchema,
-  paymentMethodSchema,
   fixedExpenseSchema,
   settingsSchema,
   profileSchema,

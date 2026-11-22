@@ -21,7 +21,7 @@ import {
   Cell,
   Legend,
 } from 'recharts'
-import { TrendingUp, Receipt, Wallet, PiggyBank, CalendarRange, TrendingDown, Sparkles } from 'lucide-react'
+import { TrendingUp, Wallet, PiggyBank, CalendarRange, TrendingDown, Sparkles } from 'lucide-react'
 
 const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316']
 
