@@ -81,7 +81,7 @@ def _all_past_complete_cycles(start_day: int, earliest: date) -> list[tuple[date
     cycles: list[tuple[date, date]] = []
     s = first_start
     while s < current_start:
-        last_day = calendar.monthrange(s.year, s.month if s.month != 12 else 1)[1]
+        # last_day = calendar.monthrange(s.year, s.month if s.month != 12 else 1)[1]
         if s.month == 12:
             e = s.replace(year=s.year + 1, month=1) - timedelta(days=1)
             next_s = s.replace(year=s.year + 1, month=1, day=min(start_day, calendar.monthrange(s.year + 1, 1)[1]))
