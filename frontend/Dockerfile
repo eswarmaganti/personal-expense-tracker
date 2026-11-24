@@ -18,6 +18,10 @@ RUN npm run build
 # ── Stage 2: serve with nginx ─────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 
+# create app user and group
+RUN addgroup -g 1000 -S app && \
+    adduser -u 1000 -S app -G app
+
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
@@ -25,7 +29,7 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/app.conf
 
 # Copy built assets from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --chown=1000:1000 --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
