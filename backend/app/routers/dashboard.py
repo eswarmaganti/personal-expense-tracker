@@ -126,7 +126,8 @@ def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_
         .scalar()
         or 0.0
     )
-    savings = monthly_salary - total_spent
+    # savings of current month is calculated as: salary - (total_spent + total_fixed)
+    savings = monthly_salary - (total_spent + total_fixed)
 
     # ── Yearly savings: sum net savings of all past complete billing cycles ────
     earliest_row = (
