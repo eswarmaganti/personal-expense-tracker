@@ -428,10 +428,11 @@ def apply_fixed_expenses(
     start_day = settings.billing_cycle_start_day if settings else 1
     win_start, win_end = _resolve_cycle_window(cycle_start, start_day)
 
-    # Post on the 1st of the cycle's calendar month — a neutral date the user can
-    # edit freely without it colliding with the cycle-start dedup key.
-    cs_date = date.fromisoformat(win_start)
-    post_date = str(cs_date.replace(day=1))
+    # Post on the cycle start date so the expense falls within the cycle window.
+    # The dedup check queries date >= win_start, so using win_start keeps the
+    # posted rows visible in the cycle view and prevents duplicate inserts on
+    # repeated calls.
+    post_date = win_start
 
     fixed_expenses = db.query(FixedExpense).filter(FixedExpense.user_id == current_user.id).all()
 

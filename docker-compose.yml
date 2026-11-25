@@ -1,41 +1,4 @@
 services:
-  # ── Init Database (seed from local backup on first run) ───────────────────
-  init-db:
-    image: alpine:3.22
-    volumes:
-      - sqlite_data:/data
-      - ./backend/expense.db:/seed/expense.db:ro
-    command:
-      - sh
-      - -c
-      - |
-        if [ ! -f /data/expense.db ]; then
-          echo "Initializing database from local backup..."
-          cp /seed/expense.db /data/expense.db
-          echo "Database initialized."
-        else
-          echo "Database already exists; skipping initialization."
-        fi
-        chown -R 1000:1000 /data
-        chmod 750 /data
-        chmod 660 /data/expense.db
-
-  # ── Run schema migrations (idempotent, runs before backend starts) ─────────
-  migrate:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: expense-tracker-migrate
-    restart: "no"
-    environment:
-      DATABASE_URL: sqlite:////data/expense.db
-    volumes:
-      - sqlite_data:/data
-    command: ["python", "migrations/migrate.py"]
-    depends_on:
-      init-db:
-        condition: service_completed_successfully
-
   # ── Backend ───────────────────────────────────────────────────────────────
   backend:
     build:
@@ -63,8 +26,6 @@ services:
       start_period: 10s
     depends_on:
       init-db:
-        condition: service_completed_successfully
-      migrate:
         condition: service_completed_successfully
 
   # ── Frontend ──────────────────────────────────────────────────────────────
