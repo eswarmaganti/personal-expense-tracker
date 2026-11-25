@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   dashboardApi,
   type DashboardSummary,
@@ -7,10 +7,10 @@ import {
   type CategoryBreakdown,
   type PaymentBreakdown,
   type BillingCycleOut,
-} from '@/api/api'
-import { formatCurrency } from '@/lib/utils'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select } from '@/components/ui/select'
+} from "@/api/api";
+import { formatCurrency } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 import {
   BarChart,
   Bar,
@@ -23,49 +23,75 @@ import {
   Pie,
   Cell,
   Legend,
-} from 'recharts'
-import { TrendingUp, Wallet, PiggyBank, CalendarRange, TrendingDown, Sparkles } from 'lucide-react'
+} from "recharts";
+import {
+  TrendingUp,
+  Wallet,
+  PiggyBank,
+  CalendarRange,
+  TrendingDown,
+  Sparkles,
+} from "lucide-react";
 
-const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316']
+const PIE_COLORS = [
+  "#3b82f6",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ec4899",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316",
+];
 
 // ── Coloured KPI card ─────────────────────────────────────────────────────────
 
-type CardVariant = 'red' | 'green' | 'blue' | 'neutral'
+type CardVariant = "red" | "green" | "blue" | "neutral";
 
 interface SummaryCardProps {
-  title: string
-  value: string
-  subtitle?: string
-  subtitleValue?: string
-  icon: React.ElementType
-  variant?: CardVariant
+  title: string;
+  value: string;
+  subtitle?: string;
+  subtitleValue?: string;
+  icon: React.ElementType;
+  variant?: CardVariant;
 }
 
-const variantStyles: Record<CardVariant, { card: string; icon: string; value: string }> = {
+const variantStyles: Record<
+  CardVariant,
+  { card: string; icon: string; value: string }
+> = {
   red: {
-    card: 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-800',
-    icon: 'text-red-500 dark:text-red-400',
-    value: 'text-red-700 dark:text-red-300',
+    card: "bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-800",
+    icon: "text-red-500 dark:text-red-400",
+    value: "text-red-700 dark:text-red-300",
   },
   green: {
-    card: 'bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800',
-    icon: 'text-green-500 dark:text-green-400',
-    value: 'text-green-700 dark:text-green-300',
+    card: "bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800",
+    icon: "text-green-500 dark:text-green-400",
+    value: "text-green-700 dark:text-green-300",
   },
   blue: {
-    card: 'bg-blue-50 border-blue-200 dark:bg-blue-950/40 dark:border-blue-800',
-    icon: 'text-blue-500 dark:text-blue-400',
-    value: 'text-blue-700 dark:text-blue-300',
+    card: "bg-blue-50 border-blue-200 dark:bg-blue-950/40 dark:border-blue-800",
+    icon: "text-blue-500 dark:text-blue-400",
+    value: "text-blue-700 dark:text-blue-300",
   },
   neutral: {
-    card: '',
-    icon: 'text-muted-foreground',
-    value: '',
+    card: "",
+    icon: "text-muted-foreground",
+    value: "",
   },
-}
+};
 
-function SummaryCard({ title, value, subtitle, subtitleValue, icon: Icon, variant = 'neutral' }: SummaryCardProps) {
-  const styles = variantStyles[variant]
+function SummaryCard({
+  title,
+  value,
+  subtitle,
+  subtitleValue,
+  icon: Icon,
+  variant = "neutral",
+}: SummaryCardProps) {
+  const styles = variantStyles[variant];
   return (
     <Card className={styles.card}>
       <CardContent className="pt-6">
@@ -77,7 +103,9 @@ function SummaryCard({ title, value, subtitle, subtitleValue, icon: Icon, varian
               <p className="mt-1 text-xs text-muted-foreground">
                 {subtitle}
                 {subtitleValue && (
-                  <span className={`ml-1 font-semibold ${styles.value}`}>{subtitleValue}</span>
+                  <span className={`ml-1 font-semibold ${styles.value}`}>
+                    {subtitleValue}
+                  </span>
                 )}
               </p>
             )}
@@ -86,73 +114,76 @@ function SummaryCard({ title, value, subtitle, subtitleValue, icon: Icon, varian
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   // "YYYY-MM-DD|YYYY-MM-DD" for a specific cycle, 'current' until cycles load
-  const [selectedCycle, setSelectedCycle] = useState<string>('current')
-  const [appliedCycles, setAppliedCycles] = useState<Set<string>>(new Set())
+  const [selectedCycle, setSelectedCycle] = useState<string>("current");
+  const [appliedCycles, setAppliedCycles] = useState<Set<string>>(new Set());
 
   const { data: billingCycles = [] } = useQuery<BillingCycleOut[]>({
-    queryKey: ['billing-cycles'],
+    queryKey: ["billing-cycles"],
     queryFn: dashboardApi.billingCycles,
-  })
+  });
 
-  const applyFixed = useMutation({ mutationFn: dashboardApi.applyFixedExpenses })
+  const applyFixed = useMutation({
+    mutationFn: dashboardApi.applyFixedExpenses,
+  });
 
   // Once billing cycles load, default to the current cycle and trigger auto-posting
   useEffect(() => {
     if (billingCycles.length > 0) {
-      const current = billingCycles.find(c => c.is_current)
+      const current = billingCycles.find((c) => c.is_current);
       if (current) {
-        const key = `${current.start_date}|${current.end_date}`
-        setSelectedCycle(key)
+        const key = `${current.start_date}|${current.end_date}`;
+        setSelectedCycle(key);
         // Auto-post fixed expenses for the current cycle (idempotent)
         if (!appliedCycles.has(current.start_date)) {
-          applyFixed.mutate(current.start_date)
-          setAppliedCycles(prev => new Set(prev).add(current.start_date))
+          applyFixed.mutate(current.start_date);
+          setAppliedCycles((prev) => new Set(prev).add(current.start_date));
         }
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [billingCycles])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingCycles]);
 
   // Derive the date window from the selected cycle
-  const [cycleStart, cycleEnd] = selectedCycle !== 'current' && selectedCycle.includes('|')
-    ? selectedCycle.split('|')
-    : [undefined, undefined]
+  const [cycleStart, cycleEnd] =
+    selectedCycle !== "current" && selectedCycle.includes("|")
+      ? selectedCycle.split("|")
+      : [undefined, undefined];
 
   const { data: summary } = useQuery<DashboardSummary>({
-    queryKey: ['dashboard-summary', cycleStart, cycleEnd],
+    queryKey: ["dashboard-summary", cycleStart, cycleEnd],
     queryFn: () => dashboardApi.summary(cycleStart, cycleEnd),
-  })
+  });
 
   const { data: trend } = useQuery<MonthlySummary[]>({
-    queryKey: ['monthly-trend'],
+    queryKey: ["monthly-trend"],
     queryFn: () => dashboardApi.monthlyTrend(6),
-  })
+  });
 
   // Breakdowns follow the same window as the selected cycle
   const { data: catBreakdown } = useQuery<CategoryBreakdown[]>({
-    queryKey: ['category-breakdown', cycleStart, cycleEnd],
+    queryKey: ["category-breakdown", cycleStart, cycleEnd],
     queryFn: () => dashboardApi.categoryBreakdown(cycleStart, cycleEnd),
-  })
+  });
 
   const { data: payBreakdown } = useQuery<PaymentBreakdown[]>({
-    queryKey: ['payment-breakdown', cycleStart, cycleEnd],
+    queryKey: ["payment-breakdown", cycleStart, cycleEnd],
     queryFn: () => dashboardApi.paymentBreakdown(cycleStart, cycleEnd),
-  })
+  });
 
-  const savings = summary?.savings ?? 0
-  const yearlySavings = summary?.yearly_savings ?? 0
-  const savingsVariant: CardVariant = savings >= 0 ? 'green' : 'red'
+  const savings = summary?.savings ?? 0;
+  const yearlySavings = summary?.yearly_savings ?? 0;
+  const savingsVariant: CardVariant = savings >= 0 ? "green" : "red";
 
   const activeCycle = billingCycles.find(
-    c => `${c.start_date}|${c.end_date}` === selectedCycle,
-  )
+    (c) => `${c.start_date}|${c.end_date}` === selectedCycle,
+  );
 
   return (
     <div className="space-y-8">
@@ -171,9 +202,13 @@ export default function DashboardPage() {
             onChange={(e) => setSelectedCycle(e.target.value)}
             className="h-7 border-0 bg-transparent py-0 text-sm shadow-none focus:ring-0"
           >
-            {billingCycles.map(c => (
-              <option key={`${c.start_date}|${c.end_date}`} value={`${c.start_date}|${c.end_date}`}>
-                {c.label}{c.is_current ? ' (current)' : ''}
+            {billingCycles.map((c) => (
+              <option
+                key={`${c.start_date}|${c.end_date}`}
+                value={`${c.start_date}|${c.end_date}`}
+              >
+                {c.label}
+                {c.is_current ? " (current)" : ""}
               </option>
             ))}
           </Select>
@@ -216,7 +251,7 @@ export default function DashboardPage() {
         <SummaryCard
           title="Net Savings"
           value={formatCurrency(savings)}
-          subtitle={savings >= 0 ? 'On track 🎉' : 'Over budget ⚠️'}
+          subtitle={savings >= 0 ? "On track 🎉" : "Over budget ⚠️"}
           icon={PiggyBank}
           variant={savingsVariant}
         />
@@ -229,6 +264,140 @@ export default function DashboardPage() {
           variant={savingsVariant}
         />
       </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Category Breakdown */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Spend by Category</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart
+                data={catBreakdown ?? []}
+                layout="vertical"
+                margin={{ left: 10, right: 20 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  className="stroke-border"
+                />
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
+                  tick={{ fontSize: 11 }}
+                  stroke="hsl(var(--muted-foreground))"
+                />
+                <YAxis
+                  type="category"
+                  dataKey="category"
+                  tick={{ fontSize: 12 }}
+                  width={90}
+                  stroke="hsl(var(--muted-foreground))"
+                />
+                <Tooltip
+                  cursor={false}
+                  formatter={(v: number) => [formatCurrency(v), "Amount"]}
+                  contentStyle={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "6px",
+                  }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
+                  itemStyle={{ color: "hsl(var(--foreground))" }}
+                />
+                <Bar dataKey="amount" fill="#ef4444" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Payment Breakdown */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Spend by Payment Method</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart
+                data={payBreakdown ?? []}
+                layout="vertical"
+                margin={{ left: 10, right: 20 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  className="stroke-border"
+                />
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
+                  tick={{ fontSize: 11 }}
+                  stroke="hsl(var(--muted-foreground))"
+                />
+                <YAxis
+                  type="category"
+                  dataKey="payment_method"
+                  tick={{ fontSize: 12 }}
+                  width={120}
+                  stroke="hsl(var(--muted-foreground))"
+                />
+                <Tooltip
+                  cursor={false}
+                  formatter={(v: number) => [formatCurrency(v), "Amount"]}
+                  contentStyle={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "6px",
+                  }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
+                  itemStyle={{ color: "hsl(var(--foreground))" }}
+                />
+                <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Monthly Pie */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Category Breakdown (Pie)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={400}>
+            <PieChart>
+              <Pie
+                data={catBreakdown ?? []}
+                dataKey="amount"
+                nameKey="category"
+                cx="50%"
+                cy="50%"
+                outerRadius={120}
+                label={({ name, percent }) =>
+                  `${name} ${(percent * 100).toFixed(0)}%`
+                }
+              >
+                {(catBreakdown ?? []).map((_, i) => (
+                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(v: number) => [formatCurrency(v), "Amount"]}
+                contentStyle={{
+                  background: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "6px",
+                  color: "hsl(var(--foreground))",
+                }}
+                labelStyle={{ color: "hsl(var(--foreground))" }}
+                itemStyle={{ color: "hsl(var(--foreground))" }}
+              />
+              <Legend wrapperStyle={{ color: "hsl(var(--foreground))" }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
       {/* 6-Cycle Trend — grouped bar: salary vs expenses */}
       <Card>
@@ -254,9 +423,21 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={trend ?? []} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="20%">
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+            <BarChart
+              data={trend ?? []}
+              margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+              barCategoryGap="20%"
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                className="stroke-border"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="month"
+                tick={{ fontSize: 12 }}
+                stroke="hsl(var(--muted-foreground))"
+              />
               <YAxis
                 tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
                 tick={{ fontSize: 12 }}
@@ -266,133 +447,45 @@ export default function DashboardPage() {
                 cursor={false}
                 formatter={(v: number, name: string) => [
                   formatCurrency(v),
-                  name === 'salary' ? 'Salary' : name === 'total' ? 'Expenses' : 'Savings',
+                  name === "salary"
+                    ? "Salary"
+                    : name === "total"
+                      ? "Expenses"
+                      : "Savings",
                 ]}
                 contentStyle={{
-                  background: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '6px',
+                  background: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "6px",
                 }}
-                labelStyle={{ color: 'hsl(var(--foreground))' }}
-                itemStyle={{ color: 'hsl(var(--foreground))' }}
+                labelStyle={{ color: "hsl(var(--foreground))" }}
+                itemStyle={{ color: "hsl(var(--foreground))" }}
               />
-              <Bar dataKey="salary"  name="salary"  fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={36} />
-              <Bar dataKey="total"   name="total"   fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={36} />
-              <Bar dataKey="savings" name="savings" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={36} />
+              <Bar
+                dataKey="salary"
+                name="salary"
+                fill="#3b82f6"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={36}
+              />
+              <Bar
+                dataKey="total"
+                name="total"
+                fill="#ef4444"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={36}
+              />
+              <Bar
+                dataKey="savings"
+                name="savings"
+                fill="#10b981"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={36}
+              />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Category Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Spend by Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={catBreakdown ?? []} layout="vertical" margin={{ left: 10, right: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
-                  tick={{ fontSize: 11 }}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <YAxis
-                  type="category"
-                  dataKey="category"
-                  tick={{ fontSize: 12 }}
-                  width={90}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <Tooltip
-                  cursor={false}
-                  formatter={(v: number) => [formatCurrency(v), 'Amount']}
-                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '6px' }}
-                  labelStyle={{ color: 'hsl(var(--foreground))' }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                />
-                <Bar dataKey="amount" fill="#ef4444" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Payment Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Spend by Payment Method</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={payBreakdown ?? []} layout="vertical" margin={{ left: 10, right: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
-                  tick={{ fontSize: 11 }}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <YAxis
-                  type="category"
-                  dataKey="payment_method"
-                  tick={{ fontSize: 12 }}
-                  width={120}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <Tooltip
-                  cursor={false}
-                  formatter={(v: number) => [formatCurrency(v), 'Amount']}
-                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '6px' }}
-                  labelStyle={{ color: 'hsl(var(--foreground))' }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                />
-                <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Monthly Pie */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Category Breakdown (Pie)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie
-                data={catBreakdown ?? []}
-                dataKey="amount"
-                nameKey="category"
-                cx="50%"
-                cy="50%"
-                outerRadius={120}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-              >
-                {(catBreakdown ?? []).map((_, i) => (
-                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(v: number) => [formatCurrency(v), 'Amount']}
-                contentStyle={{
-                  background: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '6px',
-                  color: 'hsl(var(--foreground))',
-                }}
-                labelStyle={{ color: 'hsl(var(--foreground))' }}
-                itemStyle={{ color: 'hsl(var(--foreground))' }}
-              />
-              <Legend wrapperStyle={{ color: 'hsl(var(--foreground))' }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
     </div>
-  )
+  );
 }
