@@ -70,6 +70,9 @@ class Expense(Base):
     amount = Column(Float, nullable=False)
     payment_method_id = Column(Integer, ForeignKey("payment_methods.id"), nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    # Plain integer — intentionally NOT a FK so that editing/deleting a fixed-expense
+    # template never touches historical posted expense rows.  Used only for dedup.
+    fixed_expense_id = Column(Integer, nullable=True)
     created_at = Column(String, default=_now)
 
     user = relationship("User", back_populates="expenses")
@@ -96,6 +99,9 @@ class FixedExpense(Base):
     description = Column(String, nullable=False)
     amount = Column(Float, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    payment_method_id = Column(Integer, ForeignKey("payment_methods.id"), nullable=True)
 
     user = relationship("User", back_populates="fixed_expenses")
     category = relationship("Category", back_populates="fixed_expenses")
+    payment_method = relationship("PaymentMethod")
+    # No back-ref to Expense — the link is intentionally one-directional (dedup only).

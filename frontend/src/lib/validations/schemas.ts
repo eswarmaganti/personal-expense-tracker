@@ -31,6 +31,7 @@ export const fixedExpenseSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   amount: z.coerce.number().positive('Amount must be greater than 0'),
   category_id: z.coerce.number().optional(),
+  payment_method_id: z.coerce.number().optional(),
 })
 
 export const profileSchema = z.object({

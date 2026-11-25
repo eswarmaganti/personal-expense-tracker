@@ -46,11 +46,7 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(body: UserLogin, db: Session = Depends(get_db)):
     # Allow login with either email address or display name
-    user = (
-        db.query(User)
-        .filter((User.email == body.email) | (User.name == body.email))
-        .first()
-    )
+    user = db.query(User).filter((User.email == body.email) | (User.name == body.email)).first()
     if not user or not pwd_context.verify(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return TokenResponse(

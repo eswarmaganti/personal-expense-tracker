@@ -109,6 +109,8 @@ class ExpenseOut(BaseModel):
     payment_method_name: str
     category_id: int
     category_name: str
+    fixed_expense_id: int | None = None  # non-null = auto-posted from a fixed expense template
+    is_fixed: bool = False  # convenience flag for the frontend
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -117,6 +119,7 @@ class ExpenseOut(BaseModel):
 class ExpensePage(BaseModel):
     items: list[ExpenseOut]
     total: int
+    total_amount: float
     page: int
     page_size: int
     total_pages: int
@@ -144,12 +147,14 @@ class FixedExpenseCreate(BaseModel):
     description: str = Field(..., min_length=1)
     amount: float = Field(..., gt=0)
     category_id: int | None = None
+    payment_method_id: int | None = None
 
 
 class FixedExpenseUpdate(BaseModel):
     description: str | None = Field(None, min_length=1)
     amount: float | None = Field(None, gt=0)
     category_id: int | None = None
+    payment_method_id: int | None = None
 
 
 class FixedExpenseOut(BaseModel):
@@ -158,6 +163,8 @@ class FixedExpenseOut(BaseModel):
     amount: float
     category_id: int | None
     category_name: str | None
+    payment_method_id: int | None = None
+    payment_method_name: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -169,7 +176,7 @@ class MonthlySummary(BaseModel):
     month: str  # YYYY-MM
     total: float
     transaction_count: int
-    salary: float   # monthly_salary from user settings for this cycle
+    salary: float  # monthly_salary from user settings for this cycle
     savings: float  # salary - total_expenses - total_fixed for this cycle
 
 
@@ -185,8 +192,8 @@ class PaymentBreakdown(BaseModel):
 
 class DashboardSummary(BaseModel):
     current_month: str
-    cycle_start: str   # YYYY-MM-DD — billing cycle start date
-    cycle_end: str     # YYYY-MM-DD — billing cycle end date
+    cycle_start: str  # YYYY-MM-DD — billing cycle start date
+    cycle_end: str  # YYYY-MM-DD — billing cycle end date
     total_spent: float
     transaction_count: int
     avg_per_day: float
@@ -194,3 +201,10 @@ class DashboardSummary(BaseModel):
     total_fixed: float
     savings: float
     yearly_savings: float  # sum of net savings across all past complete billing cycles
+
+
+class BillingCycleOut(BaseModel):
+    label: str  # e.g. "Nov 2026 (12 Nov – 11 Dec)"
+    start_date: str  # YYYY-MM-DD
+    end_date: str  # YYYY-MM-DD
+    is_current: bool

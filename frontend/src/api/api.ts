@@ -13,20 +13,30 @@ export interface PaymentMethodOut { id: number; name: string }
 export interface ExpenseOut {
   id: number; date: string; description: string; amount: number
   payment_method_id: number; payment_method_name: string
-  category_id: number; category_name: string; created_at: string
+  category_id: number; category_name: string
+  fixed_expense_id: number | null; is_fixed: boolean
+  created_at: string
 }
 export interface ExpensePage {
-  items: ExpenseOut[]; total: number; page: number; page_size: number; total_pages: number
+  items: ExpenseOut[]; total: number; total_amount: number; page: number; page_size: number; total_pages: number
 }
 export interface ExpenseFilters {
   page?: number; page_size?: number
   start_date?: string; end_date?: string
   category_id?: number; payment_method_id?: number
+  description?: string
 }
 export interface UserSettingsOut { billing_cycle_start_day: number; monthly_salary: number }
+export interface BillingCycleOut {
+  label: string
+  start_date: string
+  end_date: string
+  is_current: boolean
+}
 export interface FixedExpenseOut {
   id: number; description: string; amount: number
   category_id: number | null; category_name: string | null
+  payment_method_id: number | null; payment_method_name: string | null
 }
 export interface DashboardSummary {
   current_month: string
@@ -66,8 +76,26 @@ export const expensesApi = {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
+export interface FixedExpensesStatus {
+  total_eligible: number
+  applied_count: number
+  all_applied: boolean
+}
+
 export const dashboardApi = {
-  summary: () => apiClient.get<DashboardSummary>('/dashboard/summary').then(r => r.data),
+  fixedExpensesStatus: (cycleStart?: string) =>
+    apiClient.get<FixedExpensesStatus>('/dashboard/fixed-expenses-status', {
+      params: cycleStart ? { cycle_start: cycleStart } : {},
+    }).then(r => r.data),
+  applyFixedExpenses: (cycleStart?: string) =>
+    apiClient.post<FixedExpenseOut[]>('/dashboard/apply-fixed-expenses', null, {
+      params: cycleStart ? { cycle_start: cycleStart } : {},
+    }).then(r => r.data),
+  summary: (cycleStart?: string, cycleEnd?: string) =>
+    apiClient.get<DashboardSummary>('/dashboard/summary', {
+      params: cycleStart && cycleEnd ? { cycle_start: cycleStart, cycle_end: cycleEnd } : {},
+    }).then(r => r.data),
+  billingCycles: () => apiClient.get<BillingCycleOut[]>('/dashboard/billing-cycles').then(r => r.data),
   monthlyTrend: (months = 6) => apiClient.get<MonthlySummary[]>('/dashboard/monthly-trend', { params: { months } }).then(r => r.data),
   categoryBreakdown: (startDate?: string, endDate?: string) =>
     apiClient.get<CategoryBreakdown[]>('/dashboard/category-breakdown', {

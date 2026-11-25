@@ -1,6 +1,7 @@
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -21,6 +22,8 @@ def _to_out(exp: Expense) -> ExpenseOut:
         payment_method_name=exp.payment_method.name,
         category_id=exp.category_id,
         category_name=exp.category.name,
+        fixed_expense_id=exp.fixed_expense_id,
+        is_fixed=exp.fixed_expense_id is not None,
         created_at=exp.created_at,
     )
 
@@ -40,6 +43,7 @@ def list_expenses(
     end_date: str | None = Query(None, description="YYYY-MM-DD"),
     category_id: int | None = None,
     payment_method_id: int | None = None,
+    description: str | None = Query(None, description="Partial description search"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -52,13 +56,22 @@ def list_expenses(
         q = q.filter(Expense.category_id == category_id)
     if payment_method_id:
         q = q.filter(Expense.payment_method_id == payment_method_id)
+    if description:
+        q = q.filter(Expense.description.ilike(f"%{description}%"))
 
     total = q.count()
+    total_amount = (
+        db.query(func.sum(Expense.amount))
+        .filter(Expense.id.in_(q.with_entities(Expense.id).subquery()))
+        .scalar()
+        or 0.0
+    )
     items = q.order_by(Expense.date.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
     return ExpensePage(
         items=[_to_out(e) for e in items],
         total=total,
+        total_amount=total_amount,
         page=page,
         page_size=page_size,
         total_pages=math.ceil(total / page_size) if total else 0,

@@ -50,20 +50,23 @@ The app is **single-user**. JWT-based authentication protects all pages except t
 ### Expense Management
 - Add, edit, and delete expense records
 - Fields: Date, Description, Amount, Payment Method, Category
-- Paginated expense table (20 per page)
-- Filter by date range, category, and payment method
+- **MUI-style data table** (TanStack Table v8) — sortable columns, collapsible filter panel, rows-per-page selector, `1–N of total` pagination
+- Filter by description (live search), category, and payment method
+- **Billing cycle selector** at the top — defaults to the current cycle, can switch to any past cycle back to Jan 2026
+- **Summary footer** — total record count and total amount for the active filter set (server-aggregated, not just the visible page)
+- Auto-posted fixed expenses shown with a **"recurring"** badge
 
 ### Dashboard
-- **Billing Cycle Badge** — always shows the exact current billing window (e.g. 12 Nov → 11 Dec)
-- **KPI Cards** (colour-coded):
+- **Billing cycle selector** — switch between any billing cycle from Jan 2026 to present; all KPI cards and charts update instantly
+- **KPI Cards** (colour-coded, reflect the selected cycle):
   - 🔴 Total Spent — red, with transaction count
-  - 🔴 Avg. Per Day — red, over the active billing cycle
+  - 🔴 Avg. Per Day — red, over the selected billing cycle
   - 🔵 Monthly Salary — blue, with fixed expense subtotal
   - 🟢 Net Savings — green when positive, red when over budget
 - **6-Cycle Spending Trend** — line chart of the past 6 billing cycles
-- **Spend by Category** — horizontal bar chart (red bars) for the active billing cycle
-- **Spend by Payment Method** — horizontal bar chart (amber bars) for the active billing cycle
-- **Category Pie Chart** — proportional category breakdown for the active billing cycle
+- **Spend by Category** — horizontal bar chart for the selected cycle (includes auto-posted fixed expenses)
+- **Spend by Payment Method** — horizontal bar chart for the selected cycle
+- **Category Pie Chart** — proportional breakdown for the selected cycle
 
 ### Billing Cycle
 - Configurable start day (1–28), defaulting to the **12th of every month**
@@ -79,33 +82,42 @@ The app is **single-user**. JWT-based authentication protects all pages except t
 - Manage Categories — add, rename, delete
 - Manage Payment Methods — add, rename, delete
 - Billing Cycle — set the start day (1–28)
-- Monthly Fixed Expenses — recurring items like rent, subscriptions
+- **Monthly Fixed Expenses** — recurring items (Rent, EMI, SIP, etc.); each template requires a **Category** and **Payment Method** to enable auto-posting
 - Monthly Salary — used to compute Net Savings
 - Profile — update name and email
 - Security — change password
+
+### Fixed Expense Auto-Posting
+- When the Dashboard loads it calls `POST /dashboard/apply-fixed-expenses` for the current billing cycle
+- This idempotently creates one `expenses` row per template, dated the **1st of the cycle's calendar month**
+- The user can then edit each row's date to match the actual bank debit date
+- The **"Apply Fixed Expenses"** button on the Expenses page lets you trigger the same action for any past billing cycle
+- **Deduplication**: a template is never posted twice for the same billing cycle window, regardless of what date the user moves the row to
+- **History isolation**: editing or deleting a fixed expense template never modifies previously-posted expense records — each posted row is a self-contained snapshot
 
 ---
 
 ## Tech Stack
 
-| Layer        | Technology                                   |
-|--------------|----------------------------------------------|
-| Frontend     | React 18, React Router v6, Vite 5            |
-| Styling      | Tailwind CSS v3 (CSS variable–based theming) |
-| Charts       | Recharts 2                                   |
-| State/Data   | TanStack Query v5 + Zustand v5               |
-| Forms        | React Hook Form v7 + Zod v3                  |
-| Backend      | Python 3.11+, FastAPI 0.111                  |
-| Auth         | JWT via `python-jose`, bcrypt via `passlib`  |
-| Database     | SQLite via SQLAlchemy 2 ORM                  |
-| Migrations   | Alembic 1.13                                 |
-| Linter (BE)  | Ruff 0.5                                     |
-| Linter (FE)  | ESLint 9 + typescript-eslint                 |
-| Tests (BE)   | pytest + pytest-cov + httpx TestClient       |
-| Tests (FE)   | Vitest 2 + Testing Library                   |
-| Container    | Docker (multi-stage), nginx 1.27, Compose v2 |
-| CI           | GitHub Actions                               |
-| API Docs     | FastAPI auto-generated Swagger UI            |
+| Layer        | Technology                                        |
+|--------------|---------------------------------------------------|
+| Frontend     | React 18, React Router v6, Vite 5                 |
+| Styling      | Tailwind CSS v3 (CSS variable–based theming)      |
+| Charts       | Recharts 2                                        |
+| Table        | TanStack Table v8 (headless, sortable, filterable)|
+| State/Data   | TanStack Query v5 + Zustand v5                    |
+| Forms        | React Hook Form v7 + Zod v3                       |
+| Backend      | Python 3.11+, FastAPI 0.111                       |
+| Auth         | JWT via `python-jose`, bcrypt via `passlib`       |
+| Database     | SQLite via SQLAlchemy 2 ORM                       |
+| Migrations   | Custom Python runner (`migrations/migrate.py`)    |
+| Linter (BE)  | Ruff 0.5                                          |
+| Linter (FE)  | ESLint 9 + typescript-eslint                      |
+| Tests (BE)   | pytest + pytest-cov + httpx TestClient            |
+| Tests (FE)   | Vitest 2 + Testing Library                        |
+| Container    | Docker (multi-stage), nginx 1.27, Compose v2      |
+| CI           | GitHub Actions                                    |
+| API Docs     | FastAPI auto-generated Swagger UI                 |
 
 ---
 
@@ -199,16 +211,17 @@ TanStack Query cache update  →  React re-render
 | name    | TEXT    | unique per user            |
 
 ### `expenses`
-| Column            | Type    | Notes                      |
-|-------------------|---------|----------------------------|
-| id                | INTEGER | PK                         |
-| user_id           | INTEGER | FK → users                 |
-| date              | TEXT    | YYYY-MM-DD                 |
-| description       | TEXT    |                            |
-| amount            | REAL    | INR                        |
-| payment_method_id | INTEGER | FK → payment_methods       |
-| category_id       | INTEGER | FK → categories            |
-| created_at        | TEXT    | ISO 8601                   |
+| Column            | Type    | Notes                                                           |
+|-------------------|---------|-----------------------------------------------------------------|
+| id                | INTEGER | PK                                                              |
+| user_id           | INTEGER | FK → users                                                      |
+| date              | TEXT    | YYYY-MM-DD                                                      |
+| description       | TEXT    |                                                                 |
+| amount            | REAL    | INR                                                             |
+| payment_method_id | INTEGER | FK → payment_methods                                            |
+| category_id       | INTEGER | FK → categories                                                 |
+| fixed_expense_id  | INTEGER | **nullable, plain integer — NOT a FK** — dedup marker only; identifies which fixed-expense template sourced this row; NULL for manually-entered expenses |
+| created_at        | TEXT    | ISO 8601                                                        |
 
 ### `user_settings`
 | Column                  | Type    | Notes                               |
@@ -219,13 +232,72 @@ TanStack Query cache update  →  React re-render
 | monthly_salary          | REAL    | for Net Savings calculation         |
 
 ### `fixed_expenses`
-| Column      | Type    | Notes                        |
-|-------------|---------|------------------------------|
-| id          | INTEGER | PK                           |
-| user_id     | INTEGER | FK → users                   |
-| description | TEXT    | e.g., "Rent", "Netflix"      |
-| amount      | REAL    |                              |
-| category_id | INTEGER | FK → categories (nullable)   |
+| Column            | Type    | Notes                                                      |
+|-------------------|---------|------------------------------------------------------------|
+| id                | INTEGER | PK                                                         |
+| user_id           | INTEGER | FK → users                                                 |
+| description       | TEXT    | e.g., "Rent", "NPS"                                        |
+| amount            | REAL    |                                                            |
+| category_id       | INTEGER | FK → categories (nullable) — required for auto-posting     |
+| payment_method_id | INTEGER | FK → payment_methods (nullable) — required for auto-posting|
+
+### `schema_migrations`
+| Column     | Type | Notes                                                 |
+|------------|------|-------------------------------------------------------|
+| version    | TEXT | PK — e.g. `"v2"`                                      |
+| applied_at | TEXT | ISO 8601 datetime, set automatically on INSERT        |
+
+---
+
+## Database Migrations
+
+Schema migrations are managed by a custom Python runner at [`backend/migrations/migrate.py`](backend/migrations/migrate.py).
+
+### Migration files
+
+| File | Description |
+|---|---|
+| `backend/migrations/v1_to_v2.sql` | Adds `fixed_expense_id` to `expenses` and `payment_method_id` to `fixed_expenses`; recreates `expenses` to ensure `fixed_expense_id` has no FK constraint |
+
+### Running migrations
+
+**Local development (after pulling new changes):**
+```bash
+cd backend
+source venv/bin/activate
+python migrations/migrate.py
+```
+
+**Docker (production):**
+Migrations run automatically as the `migrate` service before the backend starts:
+```bash
+docker compose up --build   # migrate runs first, then backend
+```
+
+To run migrations manually against the production volume:
+```bash
+docker compose run --rm migrate
+```
+
+### How it works
+
+1. `migrate.py` connects to the SQLite database (from `DATABASE_URL` env var or `backend/expense.db`)
+2. Creates a `schema_migrations` table if it does not exist
+3. Iterates the `MIGRATIONS` list in order; skips any version already recorded in `schema_migrations`
+4. Runs the SQL file inside a transaction with `PRAGMA foreign_keys = OFF`
+5. Verifies the version row was inserted; exits with code 1 on any error
+
+### Adding a new migration
+
+1. Create `backend/migrations/vN_to_vN+1.sql`
+2. End the file with:  `INSERT OR IGNORE INTO schema_migrations (version) VALUES ('vN+1');`
+3. Add an entry to the `MIGRATIONS` list in `migrate.py`:
+   ```python
+   MIGRATIONS = [
+       ("v2", "v1_to_v2.sql"),
+       ("v3", "v2_to_v3.sql"),   # ← new entry
+   ]
+   ```
 
 ---
 
@@ -250,36 +322,43 @@ TanStack Query cache update  →  React re-render
 
 | Method | Path              | Description                                            |
 |--------|-------------------|--------------------------------------------------------|
-| GET    | /expenses         | List (paginated). Query: `page`, `page_size`, `start_date`, `end_date`, `category_id`, `payment_method_id` |
+| GET    | /expenses         | List (paginated). Query: `page`, `page_size`, `start_date`, `end_date`, `category_id`, `payment_method_id`, `description` |
 | POST   | /expenses         | Create expense                                         |
 | GET    | /expenses/{id}    | Get single expense                                     |
 | PUT    | /expenses/{id}    | Update expense                                         |
 | DELETE | /expenses/{id}    | Delete expense                                         |
 
+**`GET /expenses` response includes:**
+- `total_amount` — sum of **all matching records** (not just the current page), useful for showing totals in the footer
+
 ### Dashboard
 
 All dashboard endpoints respect the user's `billing_cycle_start_day` setting.
 
-| Method | Path                           | Description                                                      |
-|--------|--------------------------------|------------------------------------------------------------------|
-| GET    | /dashboard/summary             | KPIs for the current billing cycle + `cycle_start` / `cycle_end` |
-| GET    | /dashboard/monthly-trend       | Totals for past N billing cycles (default 6). Query: `months`   |
-| GET    | /dashboard/category-breakdown  | Category totals. Query: `start_date`, `end_date` (defaults to current cycle) |
-| GET    | /dashboard/payment-breakdown   | Payment method totals. Query: `start_date`, `end_date` (defaults to current cycle) |
+| Method | Path                                | Description                                                                |
+|--------|-------------------------------------|----------------------------------------------------------------------------|
+| GET    | /dashboard/summary                  | KPIs. Optional query: `cycle_start`, `cycle_end` (defaults to current cycle) |
+| GET    | /dashboard/monthly-trend            | Totals for past N billing cycles (default 6). Query: `months`              |
+| GET    | /dashboard/category-breakdown       | Category totals. Query: `start_date`, `end_date`                           |
+| GET    | /dashboard/payment-breakdown        | Payment method totals. Query: `start_date`, `end_date`                     |
+| GET    | /dashboard/billing-cycles           | All billing cycles from Jan 2026 to present, most recent first             |
+| GET    | /dashboard/fixed-expenses-status    | For a given `cycle_start`, returns `{total_eligible, applied_count, all_applied}` |
+| POST   | /dashboard/apply-fixed-expenses     | Idempotently posts fixed expense templates as expense records for a billing cycle. Query: `cycle_start` |
 
 **`/dashboard/summary` response fields:**
 
 ```json
 {
-  "current_month": "2026-11",
-  "cycle_start":   "2026-11-12",
-  "cycle_end":     "2026-12-11",
-  "total_spent":   12500.0,
+  "current_month":     "2026-11",
+  "cycle_start":       "2026-11-12",
+  "cycle_end":         "2026-12-11",
+  "total_spent":       12500.0,
   "transaction_count": 18,
-  "avg_per_day":   416.67,
-  "monthly_salary": 80000.0,
-  "total_fixed":   25000.0,
-  "savings":       42500.0
+  "avg_per_day":       416.67,
+  "monthly_salary":    80000.0,
+  "total_fixed":       25000.0,
+  "savings":           42500.0,
+  "yearly_savings":    85000.0
 }
 ```
 
@@ -445,12 +524,13 @@ npm run dev                    # http://localhost:5173
 
 | Command | Directory | Purpose |
 |---|---|---|
-| `uvicorn app.main:app --reload` | `backend/` | Start API with hot-reload |
+| `python migrations/migrate.py` | `backend/` | **Run schema migrations** (do this after pulling schema changes) |
+| `uvicorn app.main:app --reload --port 9000` | `backend/` | Start API with hot-reload (use port 9000 if Docker is on 8000) |
 | `python seed_admin.py` | `backend/` | Create / verify admin user |
 | `SECRET_KEY=x DATABASE_URL=sqlite:///:memory: pytest tests/ -v` | `backend/` | Run all backend tests |
 | `ruff check . && ruff format --check .` | `backend/` | Lint + format check |
 | `ruff format .` | `backend/` | Auto-format |
-| `npm run dev` | `frontend/` | Vite dev server |
+| `npm run dev` | `frontend/` | Vite dev server on :5173 |
 | `npm test` | `frontend/` | Vitest unit tests |
 | `npm run lint:ci` | `frontend/` | ESLint (zero warnings) |
 | `npm run type-check` | `frontend/` | TypeScript type check |
@@ -460,7 +540,7 @@ npm run dev                    # http://localhost:5173
 
 ## Running with Docker
 
-A single command builds and starts both services:
+A single command builds and starts all services:
 
 ```bash
 # Copy and customise env
@@ -468,6 +548,12 @@ cp backend/.env.example backend/.env   # set SECRET_KEY
 
 docker compose up --build
 ```
+
+**Service startup order:**
+1. `init-db` — seeds `expense.db` from the local file into the named volume (first run only)
+2. `migrate` — runs `python migrations/migrate.py` against the volume (idempotent, runs every startup)
+3. `backend` — starts after migrations complete
+4. `frontend` — starts after backend is healthy
 
 | Service        | URL                             |
 |----------------|---------------------------------|
@@ -483,6 +569,12 @@ To seed the admin user inside the running container:
 
 ```bash
 docker compose exec backend python seed_admin.py
+```
+
+To run migrations manually against the production volume:
+
+```bash
+docker compose run --rm migrate
 ```
 
 ---
