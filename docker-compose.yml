@@ -24,9 +24,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    depends_on:
-      init-db:
-        condition: service_completed_successfully
 
   # ── Frontend ──────────────────────────────────────────────────────────────
   frontend:
