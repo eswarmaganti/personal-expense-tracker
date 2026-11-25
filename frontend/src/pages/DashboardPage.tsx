@@ -1,13 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   dashboardApi,
   type DashboardSummary,
   type MonthlySummary,
   type CategoryBreakdown,
   type PaymentBreakdown,
+  type BillingCycleOut,
 } from '@/api/api'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select } from '@/components/ui/select'
 import {
   BarChart,
   Bar,
@@ -86,27 +89,45 @@ function SummaryCard({ title, value, subtitle, subtitleValue, icon: Icon, varian
   )
 }
 
-// ── Billing cycle badge ───────────────────────────────────────────────────────
-
-function BillingCycleBadge({ start, end }: { start: string; end: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground">
-      <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
-      <span>
-        Billing cycle: <strong className="text-foreground">{formatDate(start)}</strong>
-        {' → '}
-        <strong className="text-foreground">{formatDate(end)}</strong>
-      </span>
-    </div>
-  )
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  // "YYYY-MM-DD|YYYY-MM-DD" for a specific cycle, 'current' until cycles load
+  const [selectedCycle, setSelectedCycle] = useState<string>('current')
+  const [appliedCycles, setAppliedCycles] = useState<Set<string>>(new Set())
+
+  const { data: billingCycles = [] } = useQuery<BillingCycleOut[]>({
+    queryKey: ['billing-cycles'],
+    queryFn: dashboardApi.billingCycles,
+  })
+
+  const applyFixed = useMutation({ mutationFn: dashboardApi.applyFixedExpenses })
+
+  // Once billing cycles load, default to the current cycle and trigger auto-posting
+  useEffect(() => {
+    if (billingCycles.length > 0) {
+      const current = billingCycles.find(c => c.is_current)
+      if (current) {
+        const key = `${current.start_date}|${current.end_date}`
+        setSelectedCycle(key)
+        // Auto-post fixed expenses for the current cycle (idempotent)
+        if (!appliedCycles.has(current.start_date)) {
+          applyFixed.mutate(current.start_date)
+          setAppliedCycles(prev => new Set(prev).add(current.start_date))
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingCycles])
+
+  // Derive the date window from the selected cycle
+  const [cycleStart, cycleEnd] = selectedCycle !== 'current' && selectedCycle.includes('|')
+    ? selectedCycle.split('|')
+    : [undefined, undefined]
+
   const { data: summary } = useQuery<DashboardSummary>({
-    queryKey: ['dashboard-summary'],
-    queryFn: dashboardApi.summary,
+    queryKey: ['dashboard-summary', cycleStart, cycleEnd],
+    queryFn: () => dashboardApi.summary(cycleStart, cycleEnd),
   })
 
   const { data: trend } = useQuery<MonthlySummary[]>({
@@ -114,22 +135,24 @@ export default function DashboardPage() {
     queryFn: () => dashboardApi.monthlyTrend(6),
   })
 
-  // Breakdowns use the actual billing window from summary once loaded
+  // Breakdowns follow the same window as the selected cycle
   const { data: catBreakdown } = useQuery<CategoryBreakdown[]>({
-    queryKey: ['category-breakdown', summary?.cycle_start, summary?.cycle_end],
-    queryFn: () => dashboardApi.categoryBreakdown(summary?.cycle_start, summary?.cycle_end),
-    enabled: !!summary,
+    queryKey: ['category-breakdown', cycleStart, cycleEnd],
+    queryFn: () => dashboardApi.categoryBreakdown(cycleStart, cycleEnd),
   })
 
   const { data: payBreakdown } = useQuery<PaymentBreakdown[]>({
-    queryKey: ['payment-breakdown', summary?.cycle_start, summary?.cycle_end],
-    queryFn: () => dashboardApi.paymentBreakdown(summary?.cycle_start, summary?.cycle_end),
-    enabled: !!summary,
+    queryKey: ['payment-breakdown', cycleStart, cycleEnd],
+    queryFn: () => dashboardApi.paymentBreakdown(cycleStart, cycleEnd),
   })
 
   const savings = summary?.savings ?? 0
   const yearlySavings = summary?.yearly_savings ?? 0
   const savingsVariant: CardVariant = savings >= 0 ? 'green' : 'red'
+
+  const activeCycle = billingCycles.find(
+    c => `${c.start_date}|${c.end_date}` === selectedCycle,
+  )
 
   return (
     <div className="space-y-8">
@@ -139,10 +162,33 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground">Your spending overview</p>
         </div>
-        {summary && (
-          <BillingCycleBadge start={summary.cycle_start} end={summary.cycle_end} />
-        )}
+
+        {/* Billing cycle selector */}
+        <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5">
+          <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
+          <Select
+            value={selectedCycle}
+            onChange={(e) => setSelectedCycle(e.target.value)}
+            className="h-7 border-0 bg-transparent py-0 text-sm shadow-none focus:ring-0"
+          >
+            {billingCycles.map(c => (
+              <option key={`${c.start_date}|${c.end_date}`} value={`${c.start_date}|${c.end_date}`}>
+                {c.label}{c.is_current ? ' (current)' : ''}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
+
+      {/* Active cycle date range sub-label */}
+      {activeCycle && (
+        <p className="-mt-4 text-xs text-muted-foreground">
+          Showing data for&nbsp;
+          <strong className="text-foreground">{activeCycle.start_date}</strong>
+          &nbsp;→&nbsp;
+          <strong className="text-foreground">{activeCycle.end_date}</strong>
+        </p>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">

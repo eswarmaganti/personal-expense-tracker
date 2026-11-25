@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Category, Expense, FixedExpense, PaymentMethod, User, UserSettings
-from app.schemas import CategoryBreakdown, DashboardSummary, MonthlySummary, PaymentBreakdown
+from app.schemas import (
+    BillingCycleOut,
+    CategoryBreakdown,
+    DashboardSummary,
+    FixedExpenseOut,
+    MonthlySummary,
+    PaymentBreakdown,
+)
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -84,25 +91,42 @@ def _all_past_complete_cycles(start_day: int, earliest: date) -> list[tuple[date
         # last_day = calendar.monthrange(s.year, s.month if s.month != 12 else 1)[1]
         if s.month == 12:
             e = s.replace(year=s.year + 1, month=1) - timedelta(days=1)
-            next_s = s.replace(year=s.year + 1, month=1, day=min(start_day, calendar.monthrange(s.year + 1, 1)[1]))
+            next_s = s.replace(
+                year=s.year + 1, month=1, day=min(start_day, calendar.monthrange(s.year + 1, 1)[1])
+            )
         else:
             e = s.replace(month=s.month + 1) - timedelta(days=1)
             next_m = s.month + 1
             next_y = s.year
-            next_s = s.replace(year=next_y, month=next_m, day=min(start_day, calendar.monthrange(next_y, next_m)[1]))
+            next_s = s.replace(
+                year=next_y,
+                month=next_m,
+                day=min(start_day, calendar.monthrange(next_y, next_m)[1]),
+            )
         cycles.append((s, e))
         s = next_s
     return cycles
 
 
 @router.get("/summary", response_model=DashboardSummary)
-def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_summary(
+    cycle_start: str | None = Query(None, description="YYYY-MM-DD — override billing cycle start"),
+    cycle_end: str | None = Query(None, description="YYYY-MM-DD — override billing cycle end"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
     start_day = settings.billing_cycle_start_day if settings else 1
     monthly_salary = settings.monthly_salary if settings else 0.0
 
-    cycle_start, cycle_end = _billing_period(start_day)
-    start_str, end_str = str(cycle_start), str(cycle_end)
+    if cycle_start and cycle_end:
+        # caller supplied an explicit window (e.g. a past billing cycle)
+        start_str, end_str = cycle_start, cycle_end
+        cycle_start_date = date.fromisoformat(cycle_start)
+        cycle_end_date = date.fromisoformat(cycle_end)
+    else:
+        cycle_start_date, cycle_end_date = _billing_period(start_day)
+        start_str, end_str = str(cycle_start_date), str(cycle_end_date)
 
     rows = (
         db.query(Expense)
@@ -117,7 +141,7 @@ def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_
     total_spent = sum(e.amount for e in rows)
     transaction_count = len(rows)
 
-    days_in_cycle = (cycle_end - cycle_start).days + 1
+    days_in_cycle = (cycle_end_date - cycle_start_date).days + 1
     avg_per_day = total_spent / days_in_cycle if days_in_cycle else 0
 
     total_fixed = (
@@ -126,14 +150,12 @@ def get_summary(db: Session = Depends(get_db), current_user: User = Depends(get_
         .scalar()
         or 0.0
     )
-    # savings of current month is calculated as: salary - (total_spent + total_fixed)
-    savings = monthly_salary - (total_spent + total_fixed)
+    # savings of current month is calculated as: salary - total_spent
+    savings = monthly_salary - total_spent
 
     # ── Yearly savings: sum net savings of all past complete billing cycles ────
     earliest_row = (
-        db.query(func.min(Expense.date))
-        .filter(Expense.user_id == current_user.id)
-        .scalar()
+        db.query(func.min(Expense.date)).filter(Expense.user_id == current_user.id).scalar()
     )
     yearly_savings = 0.0
     if earliest_row:
@@ -205,8 +227,12 @@ def monthly_trend(
 
 @router.get("/category-breakdown", response_model=list[CategoryBreakdown])
 def category_breakdown(
-    start_date: str | None = Query(None, description="YYYY-MM-DD (defaults to current billing cycle start)"),
-    end_date: str | None = Query(None, description="YYYY-MM-DD (defaults to current billing cycle end)"),
+    start_date: str | None = Query(
+        None, description="YYYY-MM-DD (defaults to current billing cycle start)"
+    ),
+    end_date: str | None = Query(
+        None, description="YYYY-MM-DD (defaults to current billing cycle end)"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -234,8 +260,12 @@ def category_breakdown(
 
 @router.get("/payment-breakdown", response_model=list[PaymentBreakdown])
 def payment_breakdown(
-    start_date: str | None = Query(None, description="YYYY-MM-DD (defaults to current billing cycle start)"),
-    end_date: str | None = Query(None, description="YYYY-MM-DD (defaults to current billing cycle end)"),
+    start_date: str | None = Query(
+        None, description="YYYY-MM-DD (defaults to current billing cycle start)"
+    ),
+    end_date: str | None = Query(
+        None, description="YYYY-MM-DD (defaults to current billing cycle end)"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -259,3 +289,180 @@ def payment_breakdown(
         .all()
     )
     return [PaymentBreakdown(payment_method=r.name, amount=r.total) for r in rows]
+
+
+@router.get("/billing-cycles", response_model=list[BillingCycleOut])
+def list_billing_cycles(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return every billing cycle from January 2026 up to and including the current cycle,
+    most recent first. Each entry carries start/end dates and an is_current flag.
+    """
+    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+    start_day = settings.billing_cycle_start_day if settings else 1
+
+    current_start, current_end = _billing_period(start_day)
+
+    # The earliest cycle is the one whose start falls in Jan 2026
+    last_day_jan = calendar.monthrange(2026, 1)[1]
+    earliest_start = date(2026, 1, min(start_day, last_day_jan))
+
+    cycles: list[BillingCycleOut] = []
+    s = current_start
+    while s >= earliest_start:
+        # compute end for this cycle
+        if s.month == 12:
+            e = s.replace(year=s.year + 1, month=1) - timedelta(days=1)
+        else:
+            e = s.replace(month=s.month + 1) - timedelta(days=1)
+
+        label = f"{s.strftime('%b %Y')} ({s.strftime('%-d %b')} – {e.strftime('%-d %b')})"
+        cycles.append(
+            BillingCycleOut(
+                label=label,
+                start_date=str(s),
+                end_date=str(e),
+                is_current=(s == current_start),
+            )
+        )
+
+        if s == earliest_start:
+            break
+
+        # step back one month
+        prev_month = s.month - 1 or 12
+        prev_year = s.year if s.month > 1 else s.year - 1
+        last_day = calendar.monthrange(prev_year, prev_month)[1]
+        s = date(prev_year, prev_month, min(start_day, last_day))
+
+    return cycles
+
+
+def _cycle_end_from_start(cs: date) -> date:
+    """Return the last day of the billing cycle whose start is cs."""
+    if cs.month == 12:
+        return cs.replace(year=cs.year + 1, month=1) - timedelta(days=1)
+    return cs.replace(month=cs.month + 1) - timedelta(days=1)
+
+
+def _resolve_cycle_window(cycle_start_param: str | None, start_day: int) -> tuple[str, str]:
+    """Return (window_start, window_end) as YYYY-MM-DD strings.
+
+    If cycle_start_param is given it is used as the cycle start; otherwise the
+    current billing cycle is computed from start_day.
+    """
+    if cycle_start_param:
+        cs = date.fromisoformat(cycle_start_param)
+    else:
+        cs, _ = _billing_period(start_day)
+    ce = _cycle_end_from_start(cs)
+    return str(cs), str(ce)
+
+
+@router.get("/fixed-expenses-status")
+def fixed_expenses_status(
+    cycle_start: str | None = Query(None, description="YYYY-MM-DD — billing cycle start date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns how many fixed expense templates are eligible and how many already have an
+    expense record anywhere within the billing cycle window (regardless of exact date —
+    the user may have moved the row to its actual deduction date).
+    """
+    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+    start_day = settings.billing_cycle_start_day if settings else 1
+    win_start, win_end = _resolve_cycle_window(cycle_start, start_day)
+
+    eligible_ids = [
+        fe.id
+        for fe in db.query(FixedExpense).filter(FixedExpense.user_id == current_user.id).all()
+        if fe.payment_method_id and fe.category_id
+    ]
+    total_eligible = len(eligible_ids)
+
+    if total_eligible == 0:
+        return {"total_eligible": 0, "applied_count": 0, "all_applied": True}
+
+    # Count distinct fixed_expense_id values that appear anywhere in the cycle window
+    applied_ids = {
+        row.fixed_expense_id
+        for row in db.query(Expense.fixed_expense_id)
+        .filter(
+            Expense.user_id == current_user.id,
+            Expense.fixed_expense_id.in_(eligible_ids),
+            Expense.date >= win_start,
+            Expense.date <= win_end,
+        )
+        .all()
+    }
+    applied_count = len(applied_ids)
+
+    return {
+        "total_eligible": total_eligible,
+        "applied_count": applied_count,
+        "all_applied": applied_count >= total_eligible,
+    }
+
+
+@router.post("/apply-fixed-expenses", response_model=list[FixedExpenseOut])
+def apply_fixed_expenses(
+    cycle_start: str | None = Query(
+        None, description="YYYY-MM-DD — billing cycle start date to post on (defaults to current)"
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Idempotently posts fixed expense templates as expense records for the given billing
+    cycle.  Dedup checks whether the template already has ANY expense row within the
+    cycle window (the user may have changed the date after auto-posting).
+    New rows are posted on the 1st of the cycle's calendar month so the user can freely
+    edit the date to the actual deduction date without re-triggering apply.
+    """
+    from app.routers.settings import fe_to_out  # local import avoids circular import
+
+    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+    start_day = settings.billing_cycle_start_day if settings else 1
+    win_start, win_end = _resolve_cycle_window(cycle_start, start_day)
+
+    # Post on the 1st of the cycle's calendar month — a neutral date the user can
+    # edit freely without it colliding with the cycle-start dedup key.
+    cs_date = date.fromisoformat(win_start)
+    post_date = str(cs_date.replace(day=1))
+
+    fixed_expenses = db.query(FixedExpense).filter(FixedExpense.user_id == current_user.id).all()
+
+    for fe in fixed_expenses:
+        if not fe.payment_method_id or not fe.category_id:
+            continue
+
+        # Dedup: skip if ANY expense with this template ID already exists in the cycle window
+        already_in_cycle = (
+            db.query(Expense)
+            .filter(
+                Expense.user_id == current_user.id,
+                Expense.fixed_expense_id == fe.id,
+                Expense.date >= win_start,
+                Expense.date <= win_end,
+            )
+            .first()
+        )
+        if already_in_cycle:
+            continue
+
+        exp = Expense(
+            user_id=current_user.id,
+            date=post_date,
+            description=fe.description,
+            amount=fe.amount,
+            payment_method_id=fe.payment_method_id,
+            category_id=fe.category_id,
+            fixed_expense_id=fe.id,
+        )
+        db.add(exp)
+
+    db.commit()
+    return [fe_to_out(fe) for fe in fixed_expenses]

@@ -114,11 +114,13 @@ function InlineList<T extends { id: number; name: string }>({
 function FixedExpensesTable({
   fixedExpenses,
   categories,
+  paymentMethods,
   onDelete,
   onAdd,
 }: {
   fixedExpenses: FixedExpenseOut[]
   categories: { id: number; name: string }[]
+  paymentMethods: { id: number; name: string }[]
   onDelete: (id: number) => void
   onAdd: (data: FixedExpenseInput) => void
 }) {
@@ -136,6 +138,7 @@ function FixedExpensesTable({
               <th className="px-3 py-2 font-semibold text-muted-foreground">#</th>
               <th className="px-3 py-2 font-semibold text-muted-foreground">Description</th>
               <th className="px-3 py-2 font-semibold text-muted-foreground">Category</th>
+              <th className="px-3 py-2 font-semibold text-muted-foreground">Payment Method</th>
               <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Amount</th>
               <th className="px-3 py-2 font-semibold text-muted-foreground"></th>
             </tr>
@@ -143,7 +146,7 @@ function FixedExpensesTable({
           <tbody>
             {fixedExpenses.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                   No fixed expenses yet. Add one below.
                 </td>
               </tr>
@@ -153,6 +156,7 @@ function FixedExpensesTable({
                 <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                 <td className="px-3 py-2 font-medium">{fe.description}</td>
                 <td className="px-3 py-2 text-muted-foreground">{fe.category_name ?? '—'}</td>
+                <td className="px-3 py-2 text-muted-foreground">{fe.payment_method_name ?? <span className="text-amber-600 text-xs">⚠ Not set</span>}</td>
                 <td className="px-3 py-2 text-right font-semibold">{formatCurrency(fe.amount)}</td>
                 <td className="px-3 py-2">
                   <button onClick={() => setConfirmDeleteId(fe.id)} className="text-muted-foreground hover:text-destructive">
@@ -166,7 +170,7 @@ function FixedExpensesTable({
           {fixedExpenses.length > 0 && (
             <tfoot>
               <tr className="border-t bg-muted/50">
-                <td colSpan={3} className="px-3 py-2 font-semibold">
+                <td colSpan={4} className="px-3 py-2 font-semibold">
                   Total ({fixedExpenses.length} items)
                 </td>
                 <td className="px-3 py-2 text-right font-bold text-primary">{formatCurrency(total)}</td>
@@ -183,8 +187,8 @@ function FixedExpensesTable({
         className="space-y-3 rounded-md border bg-muted/20 p-3"
       >
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add Fixed Expense</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1 sm:col-span-1">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-1 lg:col-span-1">
             <Label className="text-xs">Description</Label>
             <Input placeholder="e.g. Rent" {...feForm.register('description')} />
             {feForm.formState.errors.description && (
@@ -205,7 +209,17 @@ function FixedExpensesTable({
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Payment Method</Label>
+            <Select {...feForm.register('payment_method_id')}>
+              <option value="">No payment method</option>
+              {paymentMethods.map((pm) => <option key={pm.id} value={pm.id}>{pm.name}</option>)}
+            </Select>
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Fixed expenses with both a category and payment method are automatically posted to your expense records at the start of each billing cycle.
+        </p>
         <Button type="submit" size="sm" disabled={feForm.formState.isSubmitting}>
           <Plus className="mr-1 h-4 w-4" /> Add
         </Button>
@@ -336,6 +350,7 @@ export default function SettingsPage() {
               <FixedExpensesTable
                 fixedExpenses={fixedExpenses}
                 categories={categories}
+                paymentMethods={paymentMethods}
                 onDelete={(id) => deleteFe.mutate(id)}
                 onAdd={(data) => createFe.mutate(data)}
               />

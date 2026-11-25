@@ -4,6 +4,7 @@ Run from the backend/ directory with the venv active:
 
     python seed_admin.py
 """
+
 from passlib.context import CryptContext
 
 from app.database import Base, SessionLocal, engine

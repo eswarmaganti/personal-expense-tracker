@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Category, FixedExpense, PaymentMethod, User, UserSettings
+from app.models import Category, Expense, FixedExpense, PaymentMethod, User, UserSettings
 from app.schemas import (
     CategoryCreate,
     CategoryOut,
@@ -17,6 +17,20 @@ from app.schemas import (
     UserSettingsOut,
     UserSettingsUpdate,
 )
+
+
+def fe_to_out(fe: FixedExpense) -> FixedExpenseOut:
+    """Shared helper — builds FixedExpenseOut including payment_method_name."""
+    return FixedExpenseOut(
+        id=fe.id,
+        description=fe.description,
+        amount=fe.amount,
+        category_id=fe.category_id,
+        category_name=fe.category.name if fe.category else None,
+        payment_method_id=fe.payment_method_id,
+        payment_method_name=fe.payment_method.name if fe.payment_method else None,
+    )
+
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -210,22 +224,12 @@ def delete_payment_method(
 # ── Fixed Expenses ────────────────────────────────────────────────────────────
 
 
-def _fe_to_out(fe: FixedExpense) -> FixedExpenseOut:
-    return FixedExpenseOut(
-        id=fe.id,
-        description=fe.description,
-        amount=fe.amount,
-        category_id=fe.category_id,
-        category_name=fe.category.name if fe.category else None,
-    )
-
-
 @router.get("/fixed-expenses", response_model=list[FixedExpenseOut])
 def list_fixed_expenses(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     return [
-        _fe_to_out(fe)
+        fe_to_out(fe)
         for fe in db.query(FixedExpense).filter(FixedExpense.user_id == current_user.id).all()
     ]
 
@@ -244,16 +248,28 @@ def create_fixed_expense(
         )
         if not cat:
             raise HTTPException(status_code=404, detail="Category not found")
+    if body.payment_method_id:
+        pm = (
+            db.query(PaymentMethod)
+            .filter(
+                PaymentMethod.id == body.payment_method_id,
+                PaymentMethod.user_id == current_user.id,
+            )
+            .first()
+        )
+        if not pm:
+            raise HTTPException(status_code=404, detail="Payment method not found")
     fe = FixedExpense(
         user_id=current_user.id,
         description=body.description,
         amount=body.amount,
         category_id=body.category_id,
+        payment_method_id=body.payment_method_id,
     )
     db.add(fe)
     db.commit()
     db.refresh(fe)
-    return _fe_to_out(fe)
+    return fe_to_out(fe)
 
 
 @router.put("/fixed-expenses/{fe_id}", response_model=FixedExpenseOut)
@@ -276,9 +292,11 @@ def update_fixed_expense(
         fe.amount = body.amount
     if body.category_id is not None:
         fe.category_id = body.category_id
+    if body.payment_method_id is not None:
+        fe.payment_method_id = body.payment_method_id
     db.commit()
     db.refresh(fe)
-    return _fe_to_out(fe)
+    return fe_to_out(fe)
 
 
 @router.delete("/fixed-expenses/{fe_id}", status_code=204)
@@ -292,5 +310,16 @@ def delete_fixed_expense(
     )
     if not fe:
         raise HTTPException(status_code=404, detail="Fixed expense not found")
+    # Detach the dedup marker from all historical expense rows that referenced this
+    # template so they remain intact but no longer point at a deleted template ID.
+    (
+        db.query(Expense)
+        .filter(Expense.user_id == current_user.id, Expense.fixed_expense_id == fe_id)
+        .update({"fixed_expense_id": None}, synchronize_session=False)
+    )
     db.delete(fe)
     db.commit()
+
+
+# ── Shared helper (imported by dashboard router) ──────────────────────────────
+# (fe_to_out is defined at the top of this module and importable)
