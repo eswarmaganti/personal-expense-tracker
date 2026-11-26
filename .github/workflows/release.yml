@@ -37,6 +37,7 @@ jobs:
           file: ./backend/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
+          provenance: false
           tags: |
             ${{ env.DOCKER_REGISTRY }}/${{ env.REPOSITORY }}/backend:${{ github.event.release.tag_name }}
             ${{ env.DOCKER_REGISTRY }}/${{ env.REPOSITORY }}/backend:latest
@@ -67,6 +68,7 @@ jobs:
           file: ./frontend/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
+          provenance: false
           tags: |
             ${{ env.DOCKER_REGISTRY }}/${{ env.REPOSITORY }}/frontend:${{ github.event.release.tag_name }}
             ${{ env.DOCKER_REGISTRY }}/${{ env.REPOSITORY }}/frontend:latest
