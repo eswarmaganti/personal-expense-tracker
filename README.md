@@ -69,10 +69,11 @@ The app is **single-user**. JWT-based authentication protects all pages except t
 - **Category Pie Chart** — proportional breakdown for the selected cycle
 
 ### Billing Cycle
-- Configurable start day (1–28), defaulting to the **12th of every month**
+- Configurable start day (1–28), defaulting to the **1st of every month** for new users
 - With `start_day=12`: the active cycle is `12 Nov → 11 Dec`; on the 12th of December it automatically rolls over to `12 Dec → 11 Jan`
 - All dashboard charts and KPIs always reflect the **current billing cycle**, not the calendar month
 - The 6-cycle trend chart walks back through past billing cycles (not calendar months)
+- **Per-cycle isolation** — each billing cycle stores its own salary and start day independently; changing values in one cycle never affects any other
 
 ### Theme
 - **Dark / Light mode toggle** in the sidebar — preference persisted to `localStorage`
@@ -81,9 +82,8 @@ The app is **single-user**. JWT-based authentication protects all pages except t
 ### Settings
 - Manage Categories — add, rename, delete
 - Manage Payment Methods — add, rename, delete
-- Billing Cycle — set the start day (1–28)
+- **Budget & Billing Cycle** — cycle dropdown to select any billing cycle; salary and start day changes apply **only to the selected cycle**, leaving all other cycles untouched
 - **Monthly Fixed Expenses** — recurring items (Rent, EMI, SIP, etc.); each template requires a **Category** and **Payment Method** to enable auto-posting
-- Monthly Salary — used to compute Net Savings
 - Profile — update name and email
 - Security — change password
 
@@ -223,13 +223,18 @@ TanStack Query cache update  →  React re-render
 | fixed_expense_id  | INTEGER | **nullable, plain integer — NOT a FK** — dedup marker only; identifies which fixed-expense template sourced this row; NULL for manually-entered expenses |
 | created_at        | TEXT    | ISO 8601                                                        |
 
-### `user_settings`
-| Column                  | Type    | Notes                               |
-|-------------------------|---------|-------------------------------------|
-| id                      | INTEGER | PK                                  |
-| user_id                 | INTEGER | FK → users, unique                  |
-| billing_cycle_start_day | INTEGER | 1–28, **default 12**                |
-| monthly_salary          | REAL    | for Net Savings calculation         |
+### `user_billing_cycle_settings`
+| Column                  | Type    | Notes                                                                 |
+|-------------------------|---------|-----------------------------------------------------------------------|
+| id                      | INTEGER | PK                                                                    |
+| user_id                 | INTEGER | FK → users                                                            |
+| cycle_start             | TEXT    | YYYY-MM-DD — start date of the billing cycle this row belongs to      |
+| billing_cycle_start_day | INTEGER | 1–28 — start day in force for this cycle                              |
+| monthly_salary          | REAL    | salary in force for this cycle, used to compute Net Savings           |
+| created_at              | TEXT    | ISO 8601                                                              |
+| updated_at              | TEXT    | ISO 8601                                                              |
+
+Unique constraint on `(user_id, cycle_start)`. New cycles are auto-seeded from the most recent previous cycle row (or defaults of `salary=0`, `start_day=1`) when the dashboard is first loaded for that cycle.
 
 ### `fixed_expenses`
 | Column            | Type    | Notes                                                      |
@@ -240,64 +245,6 @@ TanStack Query cache update  →  React re-render
 | amount            | REAL    |                                                            |
 | category_id       | INTEGER | FK → categories (nullable) — required for auto-posting     |
 | payment_method_id | INTEGER | FK → payment_methods (nullable) — required for auto-posting|
-
-### `schema_migrations`
-| Column     | Type | Notes                                                 |
-|------------|------|-------------------------------------------------------|
-| version    | TEXT | PK — e.g. `"v2"`                                      |
-| applied_at | TEXT | ISO 8601 datetime, set automatically on INSERT        |
-
----
-
-## Database Migrations
-
-Schema migrations are managed by a custom Python runner at [`backend/migrations/migrate.py`](backend/migrations/migrate.py).
-
-### Migration files
-
-| File | Description |
-|---|---|
-| `backend/migrations/v1_to_v2.sql` | Adds `fixed_expense_id` to `expenses` and `payment_method_id` to `fixed_expenses`; recreates `expenses` to ensure `fixed_expense_id` has no FK constraint |
-
-### Running migrations
-
-**Local development (after pulling new changes):**
-```bash
-cd backend
-source venv/bin/activate
-python migrations/migrate.py
-```
-
-**Docker (production):**
-Migrations run automatically as the `migrate` service before the backend starts:
-```bash
-docker compose up --build   # migrate runs first, then backend
-```
-
-To run migrations manually against the production volume:
-```bash
-docker compose run --rm migrate
-```
-
-### How it works
-
-1. `migrate.py` connects to the SQLite database (from `DATABASE_URL` env var or `backend/expense.db`)
-2. Creates a `schema_migrations` table if it does not exist
-3. Iterates the `MIGRATIONS` list in order; skips any version already recorded in `schema_migrations`
-4. Runs the SQL file inside a transaction with `PRAGMA foreign_keys = OFF`
-5. Verifies the version row was inserted; exits with code 1 on any error
-
-### Adding a new migration
-
-1. Create `backend/migrations/vN_to_vN+1.sql`
-2. End the file with:  `INSERT OR IGNORE INTO schema_migrations (version) VALUES ('vN+1');`
-3. Add an entry to the `MIGRATIONS` list in `migrate.py`:
-   ```python
-   MIGRATIONS = [
-       ("v2", "v1_to_v2.sql"),
-       ("v3", "v2_to_v3.sql"),   # ← new entry
-   ]
-   ```
 
 ---
 
@@ -333,7 +280,7 @@ docker compose run --rm migrate
 
 ### Dashboard
 
-All dashboard endpoints respect the user's `billing_cycle_start_day` setting.
+All dashboard endpoints derive `billing_cycle_start_day` and `monthly_salary` from the `user_billing_cycle_settings` row for the requested cycle. New cycle rows are auto-seeded from the previous cycle on first access.
 
 | Method | Path                                | Description                                                                |
 |--------|-------------------------------------|----------------------------------------------------------------------------|
@@ -364,22 +311,31 @@ All dashboard endpoints respect the user's `billing_cycle_start_day` setting.
 
 ### Settings
 
-| Method | Path                           | Description                     |
-|--------|--------------------------------|---------------------------------|
-| GET    | /settings                      | Get billing cycle day + salary  |
-| PUT    | /settings                      | Update billing cycle day + salary |
-| GET    | /settings/categories           | List categories                 |
-| POST   | /settings/categories           | Add category                    |
-| PUT    | /settings/categories/{id}      | Rename category                 |
-| DELETE | /settings/categories/{id}      | Delete category                 |
-| GET    | /settings/payment-methods      | List payment methods            |
-| POST   | /settings/payment-methods      | Add payment method              |
-| PUT    | /settings/payment-methods/{id} | Rename payment method           |
-| DELETE | /settings/payment-methods/{id} | Delete payment method           |
-| GET    | /settings/fixed-expenses       | List fixed expenses             |
-| POST   | /settings/fixed-expenses       | Add fixed expense               |
-| PUT    | /settings/fixed-expenses/{id}  | Update fixed expense            |
-| DELETE | /settings/fixed-expenses/{id}  | Delete fixed expense            |
+| Method | Path                                 | Description                                                                 |
+|--------|--------------------------------------|-----------------------------------------------------------------------------|
+| GET    | /settings/cycle/{cycle_start}        | Get salary + start day for a specific cycle (seeds the row if absent)       |
+| PUT    | /settings/cycle/{cycle_start}        | Update salary and/or start day for one specific cycle only                  |
+| GET    | /settings/categories                 | List categories                                                             |
+| POST   | /settings/categories                 | Add category                                                                |
+| PUT    | /settings/categories/{id}            | Rename category                                                             |
+| DELETE | /settings/categories/{id}            | Delete category                                                             |
+| GET    | /settings/payment-methods            | List payment methods                                                        |
+| POST   | /settings/payment-methods            | Add payment method                                                          |
+| PUT    | /settings/payment-methods/{id}       | Rename payment method                                                       |
+| DELETE | /settings/payment-methods/{id}       | Delete payment method                                                       |
+| GET    | /settings/fixed-expenses             | List fixed expenses                                                         |
+| POST   | /settings/fixed-expenses             | Add fixed expense                                                           |
+| PUT    | /settings/fixed-expenses/{id}        | Update fixed expense                                                        |
+| DELETE | /settings/fixed-expenses/{id}        | Delete fixed expense                                                        |
+
+**`/settings/cycle/{cycle_start}` response:**
+```json
+{
+  "cycle_start":             "2026-11-12",
+  "billing_cycle_start_day": 12,
+  "monthly_salary":          80000.0
+}
+```
 
 ---
 
@@ -462,7 +418,7 @@ personal-expense-tracker/
 │   │   ├── database.py             # SQLAlchemy engine + get_db
 │   │   ├── dependencies.py         # JWT helpers + get_current_user
 │   │   ├── models/
-│   │   │   └── models.py           # 6 ORM models
+│   │   │   └── models.py           # 6 ORM models (UserBillingCycleSettings replaces UserSettings)
 │   │   ├── schemas/
 │   │   │   └── schemas.py          # All Pydantic request/response models
 │   │   └── routers/
@@ -504,13 +460,13 @@ source venv/bin/activate       # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Start the API server (tables are auto-created on first run)
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 9000
 
 # (First time only) seed the admin user
 python seed_admin.py
 ```
 
-Swagger UI: **http://localhost:8000/docs**
+Swagger UI: **http://localhost:9000/docs**
 
 ### 2 — Frontend
 
@@ -524,8 +480,7 @@ npm run dev                    # http://localhost:5173
 
 | Command | Directory | Purpose |
 |---|---|---|
-| `python migrations/migrate.py` | `backend/` | **Run schema migrations** (do this after pulling schema changes) |
-| `uvicorn app.main:app --reload --port 9000` | `backend/` | Start API with hot-reload (use port 9000 if Docker is on 8000) |
+| `uvicorn app.main:app --reload --port 9000` | `backend/` | Start API with hot-reload on port 9000 |
 | `python seed_admin.py` | `backend/` | Create / verify admin user |
 | `SECRET_KEY=x DATABASE_URL=sqlite:///:memory: pytest tests/ -v` | `backend/` | Run all backend tests |
 | `ruff check . && ruff format --check .` | `backend/` | Lint + format check |
@@ -550,10 +505,8 @@ docker compose up --build
 ```
 
 **Service startup order:**
-1. `init-db` — seeds `expense.db` from the local file into the named volume (first run only)
-2. `migrate` — runs `python migrations/migrate.py` against the volume (idempotent, runs every startup)
-3. `backend` — starts after migrations complete
-4. `frontend` — starts after backend is healthy
+1. `backend` — `Base.metadata.create_all()` auto-creates all tables on startup
+2. `frontend` — starts after backend is healthy
 
 | Service        | URL                             |
 |----------------|---------------------------------|
@@ -569,12 +522,6 @@ To seed the admin user inside the running container:
 
 ```bash
 docker compose exec backend python seed_admin.py
-```
-
-To run migrations manually against the production volume:
-
-```bash
-docker compose run --rm migrate
 ```
 
 ---

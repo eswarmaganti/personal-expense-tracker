@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Plus, Pencil, Trash2, Check, X, User, Receipt } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, User, Receipt, CalendarRange } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-import { settingsApi, type FixedExpenseOut } from '@/api/api'
+import { settingsApi, dashboardApi, type FixedExpenseOut, type BillingCycleOut } from '@/api/api'
 import {
   fixedExpenseSchema,
   settingsSchema,
@@ -273,10 +273,32 @@ export default function SettingsPage() {
   const { user, setUser } = useAuthStore()
   const [activeTab, setActiveTab] = useState<Tab>('expense')
 
+  // ── Billing cycle picker state ────────────────────────────────────────────
+  const [selectedCycleStart, setSelectedCycleStart] = useState<string>('')
+
+  const { data: billingCycles = [] } = useQuery<BillingCycleOut[]>({
+    queryKey: ['billing-cycles'],
+    queryFn: dashboardApi.billingCycles,
+  })
+
+  // Default to current cycle once cycles load
+  useEffect(() => {
+    if (billingCycles.length > 0 && !selectedCycleStart) {
+      const current = billingCycles.find(c => c.is_current)
+      if (current) setSelectedCycleStart(current.start_date)
+    }
+  }, [billingCycles, selectedCycleStart])
+
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: settingsApi.listCategories })
   const { data: paymentMethods = [] } = useQuery({ queryKey: ['payment-methods'], queryFn: settingsApi.listPaymentMethods })
   const { data: fixedExpenses = [] } = useQuery({ queryKey: ['fixed-expenses'], queryFn: settingsApi.listFixedExpenses })
-  const { data: appSettings } = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get })
+
+  // ── Per-cycle settings ────────────────────────────────────────────────────
+  const { data: cycleSettings } = useQuery({
+    queryKey: ['cycle-settings', selectedCycleStart],
+    queryFn: () => settingsApi.getCycleSettings(selectedCycleStart),
+    enabled: !!selectedCycleStart,
+  })
 
   // ── Category mutations ────────────────────────────────────────────────────
   const createCat = useMutation({ mutationFn: settingsApi.createCategory, onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }) })
@@ -298,14 +320,20 @@ export default function SettingsPage() {
   const createFe = useMutation({ mutationFn: settingsApi.createFixedExpense, onSuccess: () => qc.invalidateQueries({ queryKey: ['fixed-expenses'] }) })
   const deleteFe = useMutation({ mutationFn: settingsApi.deleteFixedExpense, onSuccess: () => qc.invalidateQueries({ queryKey: ['fixed-expenses'] }) })
 
-  // ── Budget settings form ──────────────────────────────────────────────────
+  // ── Per-cycle budget settings form ───────────────────────────────────────
   const settingsForm = useForm<SettingsInput>({
     resolver: zodResolver(settingsSchema),
-    values: appSettings ?? { billing_cycle_start_day: 12, monthly_salary: 0 },
+    values: cycleSettings
+      ? { billing_cycle_start_day: cycleSettings.billing_cycle_start_day, monthly_salary: cycleSettings.monthly_salary }
+      : { billing_cycle_start_day: 1, monthly_salary: 0 },
   })
   const updateSettings = useMutation({
-    mutationFn: settingsApi.update,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    mutationFn: (data: SettingsInput) => settingsApi.updateCycleSettings(selectedCycleStart, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cycle-settings', selectedCycleStart] })
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+      qc.invalidateQueries({ queryKey: ['monthly-trend'] })
+    },
   })
 
   // ── Profile form ──────────────────────────────────────────────────────────
@@ -402,11 +430,29 @@ export default function SettingsPage() {
             {/* Budget & Billing Cycle */}
             <Card>
               <CardHeader>
-                <CardTitle>Budget & Billing Cycle</CardTitle>
-                <CardDescription>Your salary and the day each billing cycle starts</CardDescription>
+                <CardTitle>Budget &amp; Billing Cycle</CardTitle>
+                <CardDescription>Salary and billing cycle start day — changes apply only to the selected cycle</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={settingsForm.handleSubmit((d) => updateSettings.mutate(d))} className="space-y-4">
+                  {/* Cycle picker */}
+                  <div className="space-y-1">
+                    <Label className="flex items-center gap-1.5">
+                      <CalendarRange className="h-3.5 w-3.5" />
+                      Editing cycle
+                    </Label>
+                    <Select
+                      value={selectedCycleStart}
+                      onChange={e => setSelectedCycleStart(e.target.value)}
+                    >
+                      {billingCycles.map(c => (
+                        <option key={c.start_date} value={c.start_date}>
+                          {c.label}{c.is_current ? ' (current)' : ''}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
                   <div className="space-y-1">
                     <Label>Billing Cycle Start Day <span className="text-muted-foreground">(1–28)</span></Label>
                     <Input type="number" min={1} max={28} {...settingsForm.register('billing_cycle_start_day')} />
@@ -419,11 +465,14 @@ export default function SettingsPage() {
                     <Input type="number" step="0.01" placeholder="0.00" {...settingsForm.register('monthly_salary')} />
                   </div>
                   {updateSettings.isSuccess && (
-                    <p className="text-sm text-green-600">Settings saved.</p>
+                    <p className="text-sm text-green-600">Saved — only the {billingCycles.find(c => c.start_date === selectedCycleStart)?.label ?? 'selected'} cycle was updated.</p>
                   )}
-                  <Button type="submit" disabled={updateSettings.isPending}>
+                  <Button type="submit" disabled={updateSettings.isPending || !selectedCycleStart}>
                     {updateSettings.isPending ? 'Saving…' : 'Save'}
                   </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Changes apply only to the selected billing cycle. Other cycles are unaffected.
+                  </p>
                 </form>
               </CardContent>
             </Card>

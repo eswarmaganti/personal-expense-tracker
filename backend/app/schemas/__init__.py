@@ -1,5 +1,7 @@
 from app.schemas.schemas import (
     BillingCycleOut,
+    BillingCycleSettingsOut,
+    BillingCycleSettingsUpdate,
     CategoryBreakdown,
     CategoryCreate,
     CategoryOut,
@@ -24,8 +26,6 @@ from app.schemas.schemas import (
     UserLogin,
     UserOut,
     UserRegister,
-    UserSettingsOut,
-    UserSettingsUpdate,
 )
 
 __all__ = [
@@ -46,8 +46,8 @@ __all__ = [
     "ExpenseUpdate",
     "ExpenseOut",
     "ExpensePage",
-    "UserSettingsUpdate",
-    "UserSettingsOut",
+    "BillingCycleSettingsUpdate",
+    "BillingCycleSettingsOut",
     "FixedExpenseCreate",
     "FixedExpenseUpdate",
     "FixedExpenseOut",

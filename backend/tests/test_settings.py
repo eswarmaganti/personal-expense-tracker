@@ -34,13 +34,22 @@ def test_create_payment_method(client, auth_headers):
     assert res.json()["name"] == "Visa"
 
 
-def test_get_and_update_settings(client, auth_headers):
-    res = client.get("/api/v1/settings", headers=auth_headers)
+def test_get_and_update_cycle_settings(client, auth_headers):
+    from datetime import date
+
+    # Use the current cycle start (start_day=1 is the default for a new user)
+    today = date.today()
+    cycle_start = today.replace(day=1).isoformat()
+
+    res = client.get(f"/api/v1/settings/cycle/{cycle_start}", headers=auth_headers)
     assert res.status_code == 200
-    assert "billing_cycle_start_day" in res.json()
+    data = res.json()
+    assert "billing_cycle_start_day" in data
+    assert "monthly_salary" in data
+    assert data["cycle_start"] == cycle_start
 
     update_res = client.put(
-        "/api/v1/settings",
+        f"/api/v1/settings/cycle/{cycle_start}",
         json={
             "billing_cycle_start_day": 15,
             "monthly_salary": 50000.0,

@@ -125,15 +125,16 @@ class ExpensePage(BaseModel):
     total_pages: int
 
 
-# ── User Settings ─────────────────────────────────────────────────────────────
+# ── Billing Cycle Settings ────────────────────────────────────────────────────
 
 
-class UserSettingsUpdate(BaseModel):
+class BillingCycleSettingsUpdate(BaseModel):
     billing_cycle_start_day: int | None = Field(None, ge=1, le=28)
     monthly_salary: float | None = Field(None, ge=0)
 
 
-class UserSettingsOut(BaseModel):
+class BillingCycleSettingsOut(BaseModel):
+    cycle_start: str  # YYYY-MM-DD
     billing_cycle_start_day: int
     monthly_salary: float
 

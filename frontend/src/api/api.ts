@@ -4,6 +4,12 @@ import type {
   ExpenseInput, CategoryInput, PaymentMethodInput, FixedExpenseInput, SettingsInput,
 } from '@/lib/validations/schemas'
 
+export interface BillingCycleSettingsOut {
+  cycle_start: string        // YYYY-MM-DD
+  billing_cycle_start_day: number
+  monthly_salary: number
+}
+
 // ── Types (mirrors backend schemas) ──────────────────────────────────────────
 
 export interface UserOut { id: number; name: string; email: string; created_at: string }
@@ -26,6 +32,7 @@ export interface ExpenseFilters {
   category_id?: number; payment_method_id?: number
   description?: string
 }
+/** @deprecated Use BillingCycleSettingsOut instead */
 export interface UserSettingsOut { billing_cycle_start_day: number; monthly_salary: number }
 export interface BillingCycleOut {
   label: string
@@ -110,8 +117,11 @@ export const dashboardApi = {
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 export const settingsApi = {
-  get: () => apiClient.get<UserSettingsOut>('/settings').then(r => r.data),
-  update: (data: SettingsInput) => apiClient.put<UserSettingsOut>('/settings', data).then(r => r.data),
+  // per-cycle settings
+  getCycleSettings: (cycleStart: string) =>
+    apiClient.get<BillingCycleSettingsOut>(`/settings/cycle/${cycleStart}`).then(r => r.data),
+  updateCycleSettings: (cycleStart: string, data: SettingsInput) =>
+    apiClient.put<BillingCycleSettingsOut>(`/settings/cycle/${cycleStart}`, data).then(r => r.data),
   // categories
   listCategories: () => apiClient.get<CategoryOut[]>('/settings/categories').then(r => r.data),
   createCategory: (data: CategoryInput) => apiClient.post<CategoryOut>('/settings/categories', data).then(r => r.data),
