@@ -268,19 +268,49 @@ def get_summary(
 @router.get("/monthly-trend", response_model=list[MonthlySummary])
 def monthly_trend(
     months: int = Query(6, ge=1, le=24),
+    year: int | None = Query(None, ge=2000, le=2100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Returns aggregates for the past N billing cycles."""
+    """Returns aggregates for the past N billing cycles, or all cycles for a given year.
+
+    When `year` is provided, `months` is ignored and all billing cycles whose
+    start date falls within that calendar year are returned (oldest first).
+    A Dec–Jan cycle is attributed to the year its start date falls in.
+    """
     # Derive start_day from the current cycle's settings row
     current_cycle_start, _ = _billing_period(1)
     current_cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
     start_day = current_cs_row.billing_cycle_start_day
     # Re-derive with the real start_day
-    current_cycle_start, _ = _billing_period(start_day)
+    current_cycle_start, current_cycle_end = _billing_period(start_day)
+
+    if year is not None:
+        # Collect every billing cycle whose start_date is in the requested year.
+        # We generate all cycles from Jan of that year up to current and filter.
+        cycles_for_year: list[tuple[date, date]] = []
+        last_day_jan = calendar.monthrange(year, 1)[1]
+        earliest = date(year, 1, min(start_day, last_day_jan))
+        s = current_cycle_start
+        while s >= earliest:
+            if s.year == year:
+                if s.month == 12:
+                    e = s.replace(year=s.year + 1, month=1) - timedelta(days=1)
+                else:
+                    e = s.replace(month=s.month + 1) - timedelta(days=1)
+                cycles_for_year.append((s, e))
+            if s <= earliest:
+                break
+            prev_month = s.month - 1 or 12
+            prev_year = s.year if s.month > 1 else s.year - 1
+            last_day = calendar.monthrange(prev_year, prev_month)[1]
+            s = date(prev_year, prev_month, min(start_day, last_day))
+        cycles = list(reversed(cycles_for_year))
+    else:
+        cycles = _past_billing_cycles(start_day, months)
 
     result = []
-    for cycle_start, cycle_end in _past_billing_cycles(start_day, months):
+    for cycle_start, cycle_end in cycles:
         start_str, end_str = str(cycle_start), str(cycle_end)
         cycle_settings = _get_or_seed_cycle_settings(db, current_user.id, cycle_start)
         monthly_salary = cycle_settings.monthly_salary
