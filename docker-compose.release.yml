@@ -46,4 +46,5 @@ services:
 
 volumes:
   sqlite_data:
-    driver: local
+    external: true
+    name: expense-tracker_sqlite_data
