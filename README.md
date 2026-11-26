@@ -396,11 +396,14 @@ frontend/src/
 personal-expense-tracker/
 ├── README.md
 ├── AGENTS.md                       # AI agent guidance for this codebase
-├── docker-compose.yml              # One-command local stack
+├── docker-compose.yml              # Build-from-source dev stack
+├── docker-compose.release.yml      # Pull-from-GHCR release stack
+├── run.sh                          # One-command release runner (auto-detects latest tag)
 ├── .github/
 │   └── workflows/
-│       ├── backend-ci.yml          # Lint → Test (3.11+3.12 matrix) → Docker build
-│       └── frontend-ci.yml         # Lint+typecheck → Test → Build → Docker build
+│       ├── backend-ci.yml          # Lint → Test (3.11+3.12 matrix) → Docker build (SHA tag)
+│       ├── frontend-ci.yml         # Lint+typecheck → Test → Build → Docker build (SHA tag)
+│       └── release.yml             # On release publish: build + push <tag> and latest
 ├── backend/
 │   ├── Dockerfile                  # Multi-stage Python 3.11-slim
 │   ├── .dockerignore
@@ -510,7 +513,24 @@ docker compose up --build
 
 ### Option 2 — Run a published release (`docker-compose.release.yml`)
 
-Pulls pre-built images from GHCR without touching any source code — the cleanest way to run the app locally:
+Pulls pre-built images from GHCR without touching any source code — the cleanest way to run the app locally.
+
+#### Using `run.sh` (recommended)
+
+[`run.sh`](run.sh) is the one-command way to run a release. It automatically fetches the latest release tag from GitHub, gracefully stops any already-running stack, pulls fresh images, and starts the new version — fully idempotent.
+
+```bash
+# Auto-detect and run the latest release
+./run.sh
+
+# Pin to a specific release tag
+./run.sh v1.2.0
+
+# Authenticated fetch (avoids GitHub API rate-limit on shared machines)
+GITHUB_TOKEN=ghp_... ./run.sh
+```
+
+#### Manual compose commands
 
 ```bash
 # Pull and start the latest release
