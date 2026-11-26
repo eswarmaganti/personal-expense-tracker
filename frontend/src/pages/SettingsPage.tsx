@@ -4,6 +4,8 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Pencil, Trash2, Check, X, User, Receipt, CalendarRange, Save } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { categoryDotColor, categoryColorById } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 
 import { settingsApi, dashboardApi, type FixedExpenseOut, type BillingCycleOut, type BillingCycleSettingsOut } from '@/api/api'
 import {
@@ -19,8 +21,7 @@ import {
 } from '@/lib/validations/schemas'
 import { authApi } from '@/api/api'
 import { useAuthStore } from '@/store/authStore'
-import { formatCurrency } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,12 +36,15 @@ function InlineList<T extends { id: number; name: string }>({
   onUpdate,
   onDelete,
   placeholder,
+  showColorSwatch = false,
 }: {
   items: T[]
   onCreate: (name: string) => void
   onUpdate: (id: number, name: string) => void
   onDelete: (id: number) => void
   placeholder: string
+  /** When true, shows a color swatch dot and badge preview next to each item name */
+  showColorSwatch?: boolean
 }) {
   const [newName, setNewName] = useState('')
   const [editId, setEditId] = useState<number | null>(null)
@@ -68,7 +72,22 @@ function InlineList<T extends { id: number; name: string }>({
             </>
           ) : (
             <>
-              <span className="text-sm">{item.name}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                {showColorSwatch && (
+                  <span
+                    className="inline-block h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: categoryDotColor(item.id) }}
+                    title="Category color"
+                  />
+                )}
+                {showColorSwatch ? (
+                  <Badge className={cn('border-0 text-xs', categoryColorById(item.id))}>
+                    {item.name}
+                  </Badge>
+                ) : (
+                  <span className="text-sm">{item.name}</span>
+                )}
+              </div>
               <div className="flex gap-1.5">
                 <button onClick={() => { setEditId(item.id); setEditName(item.name) }} className="text-muted-foreground hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
                 <button onClick={() => setConfirmDeleteId(item.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -154,7 +173,15 @@ function FixedExpensesTable({
               <tr key={fe.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                 <td className="px-3 py-2 font-medium">{fe.description}</td>
-                <td className="px-3 py-2 text-muted-foreground">{fe.category_name ?? '—'}</td>
+                <td className="px-3 py-2">
+                  {fe.category_id != null && fe.category_name ? (
+                    <Badge className={cn('border-0 text-xs', categoryColorById(fe.category_id))}>
+                      {fe.category_name}
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-muted-foreground">{fe.payment_method_name ?? <span className="text-amber-600 text-xs">⚠ Not set</span>}</td>
                 <td className="px-3 py-2 text-right font-semibold">{formatCurrency(fe.amount)}</td>
                 <td className="px-3 py-2">
@@ -531,6 +558,7 @@ export default function SettingsPage() {
                   onUpdate={(id, name) => updateCat.mutate({ id, data: { name } })}
                   onDelete={(id) => deleteCat.mutate(id)}
                   placeholder="New category…"
+                  showColorSwatch
                 />
               </CardContent>
             </Card>

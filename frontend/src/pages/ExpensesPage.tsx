@@ -25,22 +25,13 @@ import {
   type ExpenseOut, type ExpenseFilters, type BillingCycleOut, type FixedExpensesStatus,
 } from '@/api/api'
 import { expenseSchema, type ExpenseInput } from '@/lib/validations/schemas'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { formatCurrency, formatDate, cn, categoryColorById } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-
-// ── Category badge colour ─────────────────────────────────────────────────────
-
-function categoryColor(name: string): string {
-  if (/invest/i.test(name)) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-  if (/loan|emi/i.test(name)) return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-  if (/rent/i.test(name)) return 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300'
-  return 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300'
-}
 
 // ── Expense form modal ────────────────────────────────────────────────────────
 
@@ -268,7 +259,7 @@ export default function ExpensesPage() {
     colHelper.accessor('category_name', {
       header: 'Category',
       cell: info => (
-        <Badge className={cn('border-0 text-xs', categoryColor(info.getValue()))}>
+        <Badge className={cn('border-0 text-xs', categoryColorById(info.row.original.category_id))}>
           {info.getValue()}
         </Badge>
       ),

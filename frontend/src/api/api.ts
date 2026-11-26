@@ -57,7 +57,7 @@ export interface DashboardSummary {
   savings: number
   yearly_savings: number
 }
-export interface MonthlySummary { month: string; total: number; transaction_count: number; salary: number; savings: number }
+export interface MonthlySummary { month: string; total: number; transaction_count: number; salary: number; savings: number; cycle_end?: string }
 export interface CategoryBreakdown { category: string; amount: number }
 export interface PaymentBreakdown { payment_method: string; amount: number }
 
@@ -103,7 +103,10 @@ export const dashboardApi = {
       params: cycleStart && cycleEnd ? { cycle_start: cycleStart, cycle_end: cycleEnd } : {},
     }).then(r => r.data),
   billingCycles: () => apiClient.get<BillingCycleOut[]>('/dashboard/billing-cycles').then(r => r.data),
-  monthlyTrend: (months = 6) => apiClient.get<MonthlySummary[]>('/dashboard/monthly-trend', { params: { months } }).then(r => r.data),
+  monthlyTrend: (months = 6, year?: number) =>
+    apiClient.get<MonthlySummary[]>('/dashboard/monthly-trend', {
+      params: year !== undefined ? { year } : { months },
+    }).then(r => r.data),
   categoryBreakdown: (startDate?: string, endDate?: string) =>
     apiClient.get<CategoryBreakdown[]>('/dashboard/category-breakdown', {
       params: startDate && endDate ? { start_date: startDate, end_date: endDate } : {},

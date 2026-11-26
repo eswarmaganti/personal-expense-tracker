@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   dashboardApi,
@@ -123,6 +123,7 @@ export default function DashboardPage() {
   // "YYYY-MM-DD|YYYY-MM-DD" for a specific cycle, 'current' until cycles load
   const [selectedCycle, setSelectedCycle] = useState<string>("current");
   const [appliedCycles, setAppliedCycles] = useState<Set<string>>(new Set());
+  const [trendYear, setTrendYear] = useState<number>(new Date().getFullYear());
 
   const { data: billingCycles = [] } = useQuery<BillingCycleOut[]>({
     queryKey: ["billing-cycles"],
@@ -162,9 +163,20 @@ export default function DashboardPage() {
   });
 
   const { data: trend } = useQuery<MonthlySummary[]>({
-    queryKey: ["monthly-trend"],
-    queryFn: () => dashboardApi.monthlyTrend(6),
+    queryKey: ["monthly-trend", trendYear],
+    queryFn: () => dashboardApi.monthlyTrend(6, trendYear),
   });
+
+  // Derive available years from billing cycles (unique years of start_date)
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    billingCycles.forEach((c) => {
+      years.add(new Date(c.start_date).getFullYear());
+    });
+    // Always include current year even before cycles load
+    years.add(new Date().getFullYear());
+    return Array.from(years).sort((a, b) => b - a); // descending
+  }, [billingCycles]);
 
   // Breakdowns follow the same window as the selected cycle
   const { data: catBreakdown } = useQuery<CategoryBreakdown[]>({
@@ -399,25 +411,42 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* 6-Cycle Trend — grouped bar: salary vs expenses */}
+      {/* Yearly Spending Trend — grouped bar: salary vs expenses */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>6-Cycle Spending Trend</CardTitle>
-            {/* Legend */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm bg-blue-500" />
-                Salary
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
-                Expenses
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm bg-emerald-500" />
-                Savings
-              </span>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle>Spending Trend</CardTitle>
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Year selector */}
+              <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5">
+                <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
+                <Select
+                  value={String(trendYear)}
+                  onChange={(e) => setTrendYear(Number(e.target.value))}
+                  className="h-7 border-0 bg-transparent py-0 text-sm shadow-none focus:ring-0"
+                >
+                  {availableYears.map((y) => (
+                    <option key={y} value={y}>
+                      {y}{y === new Date().getFullYear() ? " (current)" : ""}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {/* Legend */}
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-blue-500" />
+                  Salary
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
+                  Expenses
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-emerald-500" />
+                  Savings
+                </span>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -435,6 +464,10 @@ export default function DashboardPage() {
               />
               <XAxis
                 dataKey="month"
+                tickFormatter={(v: string) => {
+                  const [y, m] = v.split("-");
+                  return new Date(Number(y), Number(m) - 1).toLocaleString("en-IN", { month: "short" }) + " '" + y.slice(2);
+                }}
                 tick={{ fontSize: 12 }}
                 stroke="hsl(var(--muted-foreground))"
               />
