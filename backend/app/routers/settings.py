@@ -12,6 +12,7 @@ from app.models import (
     FixedExpense,
     PaymentMethod,
     User,
+    UserBillingCycleSettings,
 )
 from app.schemas import (
     BillingCycleSettingsOut,
@@ -98,6 +99,59 @@ def update_cycle_settings(
 
     db.refresh(row)
     return row
+
+
+@router.get("/cycles", response_model=list[BillingCycleSettingsOut])
+def list_cycles(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return all per-cycle settings rows for the current user, most recent first."""
+    return (
+        db.query(UserBillingCycleSettings)
+        .filter(UserBillingCycleSettings.user_id == current_user.id)
+        .order_by(UserBillingCycleSettings.cycle_start.desc())
+        .all()
+    )
+
+
+@router.delete("/cycle/{cycle_start}", status_code=204)
+def delete_cycle(
+    cycle_start: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a billing cycle settings row. The current active cycle cannot be deleted."""
+    from app.routers.dashboard import _billing_period
+
+    try:
+        cycle_date = date.fromisoformat(cycle_start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="cycle_start must be YYYY-MM-DD") from exc
+
+    # Determine current cycle's start (use start_day=1 as bootstrap; refine below)
+    current_start, _ = _billing_period(1)
+    # Fetch the row to get its actual start_day for a more precise check
+    row = (
+        db.query(UserBillingCycleSettings)
+        .filter(
+            UserBillingCycleSettings.user_id == current_user.id,
+            UserBillingCycleSettings.cycle_start == str(cycle_date),
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Billing cycle not found")
+
+    # Recompute current cycle with the row's own start_day
+    actual_current_start, _ = _billing_period(row.billing_cycle_start_day)
+    if str(cycle_date) == str(actual_current_start):
+        raise HTTPException(
+            status_code=400, detail="Cannot delete the current active billing cycle"
+        )
+
+    db.delete(row)
+    db.commit()
 
 
 # ── Categories ────────────────────────────────────────────────────────────────

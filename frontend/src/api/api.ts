@@ -118,10 +118,14 @@ export const dashboardApi = {
 
 export const settingsApi = {
   // per-cycle settings
+  listCycles: () =>
+    apiClient.get<BillingCycleSettingsOut[]>('/settings/cycles').then(r => r.data),
   getCycleSettings: (cycleStart: string) =>
     apiClient.get<BillingCycleSettingsOut>(`/settings/cycle/${cycleStart}`).then(r => r.data),
   updateCycleSettings: (cycleStart: string, data: SettingsInput) =>
     apiClient.put<BillingCycleSettingsOut>(`/settings/cycle/${cycleStart}`, data).then(r => r.data),
+  deleteCycle: (cycleStart: string) =>
+    apiClient.delete(`/settings/cycle/${cycleStart}`),
   // categories
   listCategories: () => apiClient.get<CategoryOut[]>('/settings/categories').then(r => r.data),
   createCategory: (data: CategoryInput) => apiClient.post<CategoryOut>('/settings/categories', data).then(r => r.data),
