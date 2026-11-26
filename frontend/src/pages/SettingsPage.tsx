@@ -1,14 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Plus, Pencil, Trash2, Check, X, User, Receipt, CalendarRange } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, User, Receipt, CalendarRange, Save } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
-import { settingsApi, dashboardApi, type FixedExpenseOut, type BillingCycleOut } from '@/api/api'
+import { settingsApi, dashboardApi, type FixedExpenseOut, type BillingCycleOut, type BillingCycleSettingsOut } from '@/api/api'
 import {
   fixedExpenseSchema,
-  settingsSchema,
   profileSchema,
   changePasswordSchema,
   type CategoryInput,
@@ -236,6 +235,147 @@ function FixedExpensesTable({
   )
 }
 
+// ── Billing Cycles management table ──────────────────────────────────────────
+
+function BillingCyclesTable({
+  cycles,
+  currentCycleStart,
+  onUpdate,
+  onDelete,
+}: {
+  cycles: BillingCycleSettingsOut[]
+  currentCycleStart: string
+  onUpdate: (cycleStart: string, data: { billing_cycle_start_day: number; monthly_salary: number }) => void
+  onDelete: (cycleStart: string) => void
+}) {
+  const [editCycle, setEditCycle] = useState<string | null>(null)
+  const [editStartDay, setEditStartDay] = useState(1)
+  const [editSalary, setEditSalary] = useState(0)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  function startEdit(c: BillingCycleSettingsOut) {
+    setEditCycle(c.cycle_start)
+    setEditStartDay(c.billing_cycle_start_day)
+    setEditSalary(c.monthly_salary)
+  }
+
+  function cancelEdit() { setEditCycle(null) }
+
+  function formatCycleLabel(cycleStart: string) {
+    const d = new Date(cycleStart + 'T00:00:00')
+    return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50 text-left">
+              <th className="px-3 py-2 font-semibold text-muted-foreground">Cycle</th>
+              <th className="px-3 py-2 font-semibold text-muted-foreground">Start Day</th>
+              <th className="px-3 py-2 font-semibold text-muted-foreground">Monthly Salary (₹)</th>
+              <th className="px-3 py-2 font-semibold text-muted-foreground">Status</th>
+              <th className="px-3 py-2 font-semibold text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cycles.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                  No billing cycles yet.
+                </td>
+              </tr>
+            )}
+            {cycles.map((c) => {
+              const isCurrent = c.cycle_start === currentCycleStart
+              const isEditing = editCycle === c.cycle_start
+              return (
+                <tr key={c.cycle_start} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-3 py-2 font-medium">
+                    {formatCycleLabel(c.cycle_start)}
+                    <span className="ml-1.5 text-xs text-muted-foreground">{c.cycle_start}</span>
+                  </td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        type="number" min={1} max={28}
+                        value={editStartDay}
+                        onChange={e => setEditStartDay(Number(e.target.value))}
+                        className="w-16 rounded border px-2 py-1 text-sm bg-background"
+                      />
+                    ) : (
+                      <span>{c.billing_cycle_start_day}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <input
+                        type="number" min={0} step="0.01"
+                        value={editSalary}
+                        onChange={e => setEditSalary(Number(e.target.value))}
+                        className="w-32 rounded border px-2 py-1 text-sm bg-background"
+                      />
+                    ) : (
+                      <span>₹{c.monthly_salary.toLocaleString('en-IN')}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {isCurrent ? (
+                      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                        Current
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Past</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {isEditing ? (
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => { onUpdate(c.cycle_start, { billing_cycle_start_day: editStartDay, monthly_salary: editSalary }); cancelEdit() }}
+                          className="text-primary hover:text-primary/80" title="Save"
+                        >
+                          <Save className="h-4 w-4" />
+                        </button>
+                        <button onClick={cancelEdit} className="text-muted-foreground hover:text-foreground" title="Cancel">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <button onClick={() => startEdit(c)} className="text-muted-foreground hover:text-foreground" title="Edit">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => !isCurrent && setConfirmDelete(c.cycle_start)}
+                          disabled={isCurrent}
+                          title={isCurrent ? 'Cannot delete the active cycle' : 'Delete cycle'}
+                          className={isCurrent ? 'text-muted-foreground/30 cursor-not-allowed' : 'text-muted-foreground hover:text-destructive'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {confirmDelete !== null && (
+        <ConfirmDialog
+          message={`Delete the ${formatCycleLabel(confirmDelete)} (${confirmDelete}) billing cycle? This cannot be undone.`}
+          onConfirm={() => { onDelete(confirmDelete); setConfirmDelete(null) }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Tab nav ───────────────────────────────────────────────────────────────────
 
 type Tab = 'expense' | 'user'
@@ -273,31 +413,19 @@ export default function SettingsPage() {
   const { user, setUser } = useAuthStore()
   const [activeTab, setActiveTab] = useState<Tab>('expense')
 
-  // ── Billing cycle picker state ────────────────────────────────────────────
-  const [selectedCycleStart, setSelectedCycleStart] = useState<string>('')
-
   const { data: billingCycles = [] } = useQuery<BillingCycleOut[]>({
     queryKey: ['billing-cycles'],
     queryFn: dashboardApi.billingCycles,
   })
 
-  // Default to current cycle once cycles load
-  useEffect(() => {
-    if (billingCycles.length > 0 && !selectedCycleStart) {
-      const current = billingCycles.find(c => c.is_current)
-      if (current) setSelectedCycleStart(current.start_date)
-    }
-  }, [billingCycles, selectedCycleStart])
-
   const { data: categories = [] } = useQuery({ queryKey: ['categories'], queryFn: settingsApi.listCategories })
   const { data: paymentMethods = [] } = useQuery({ queryKey: ['payment-methods'], queryFn: settingsApi.listPaymentMethods })
   const { data: fixedExpenses = [] } = useQuery({ queryKey: ['fixed-expenses'], queryFn: settingsApi.listFixedExpenses })
 
-  // ── Per-cycle settings ────────────────────────────────────────────────────
-  const { data: cycleSettings } = useQuery({
-    queryKey: ['cycle-settings', selectedCycleStart],
-    queryFn: () => settingsApi.getCycleSettings(selectedCycleStart),
-    enabled: !!selectedCycleStart,
+  // ── Billing cycles list (for the management table) ────────────────────────
+  const { data: allCycles = [] } = useQuery({
+    queryKey: ['all-cycles'],
+    queryFn: settingsApi.listCycles,
   })
 
   // ── Category mutations ────────────────────────────────────────────────────
@@ -320,17 +448,21 @@ export default function SettingsPage() {
   const createFe = useMutation({ mutationFn: settingsApi.createFixedExpense, onSuccess: () => qc.invalidateQueries({ queryKey: ['fixed-expenses'] }) })
   const deleteFe = useMutation({ mutationFn: settingsApi.deleteFixedExpense, onSuccess: () => qc.invalidateQueries({ queryKey: ['fixed-expenses'] }) })
 
-  // ── Per-cycle budget settings form ───────────────────────────────────────
-  const settingsForm = useForm<SettingsInput>({
-    resolver: zodResolver(settingsSchema),
-    values: cycleSettings
-      ? { billing_cycle_start_day: cycleSettings.billing_cycle_start_day, monthly_salary: cycleSettings.monthly_salary }
-      : { billing_cycle_start_day: 1, monthly_salary: 0 },
-  })
+  // ── Per-cycle budget settings mutation (called from BillingCyclesTable) ──
   const updateSettings = useMutation({
-    mutationFn: (data: SettingsInput) => settingsApi.updateCycleSettings(selectedCycleStart, data),
+    mutationFn: ({ cycleStart, data }: { cycleStart: string; data: SettingsInput }) =>
+      settingsApi.updateCycleSettings(cycleStart, data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['cycle-settings', variables.cycleStart] })
+      qc.invalidateQueries({ queryKey: ['all-cycles'] })
+      qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+      qc.invalidateQueries({ queryKey: ['monthly-trend'] })
+    },
+  })
+  const deleteCycle = useMutation({
+    mutationFn: settingsApi.deleteCycle,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['cycle-settings', selectedCycleStart] })
+      qc.invalidateQueries({ queryKey: ['all-cycles'] })
       qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
       qc.invalidateQueries({ queryKey: ['monthly-trend'] })
     },
@@ -427,53 +559,26 @@ export default function SettingsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
-            {/* Budget & Billing Cycle */}
-            <Card>
+            {/* Budget & Billing Cycles */}
+            <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Budget &amp; Billing Cycle</CardTitle>
-                <CardDescription>Salary and billing cycle start day — changes apply only to the selected cycle</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4" />
+                  Billing Cycles
+                </CardTitle>
+                <CardDescription>
+                  Manage salary and billing cycle start day per cycle. Click the pencil to edit a row inline. The current active cycle cannot be deleted.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={settingsForm.handleSubmit((d) => updateSettings.mutate(d))} className="space-y-4">
-                  {/* Cycle picker */}
-                  <div className="space-y-1">
-                    <Label className="flex items-center gap-1.5">
-                      <CalendarRange className="h-3.5 w-3.5" />
-                      Editing cycle
-                    </Label>
-                    <Select
-                      value={selectedCycleStart}
-                      onChange={e => setSelectedCycleStart(e.target.value)}
-                    >
-                      {billingCycles.map(c => (
-                        <option key={c.start_date} value={c.start_date}>
-                          {c.label}{c.is_current ? ' (current)' : ''}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label>Billing Cycle Start Day <span className="text-muted-foreground">(1–28)</span></Label>
-                    <Input type="number" min={1} max={28} {...settingsForm.register('billing_cycle_start_day')} />
-                    <p className="text-xs text-muted-foreground">
-                      e.g. 12 → cycle runs from the 12th of each month to the 11th of the next
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Monthly Salary (₹)</Label>
-                    <Input type="number" step="0.01" placeholder="0.00" {...settingsForm.register('monthly_salary')} />
-                  </div>
-                  {updateSettings.isSuccess && (
-                    <p className="text-sm text-green-600">Saved — only the {billingCycles.find(c => c.start_date === selectedCycleStart)?.label ?? 'selected'} cycle was updated.</p>
-                  )}
-                  <Button type="submit" disabled={updateSettings.isPending || !selectedCycleStart}>
-                    {updateSettings.isPending ? 'Saving…' : 'Save'}
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    Changes apply only to the selected billing cycle. Other cycles are unaffected.
-                  </p>
-                </form>
+                <BillingCyclesTable
+                  cycles={allCycles}
+                  currentCycleStart={billingCycles.find(c => c.is_current)?.start_date ?? ''}
+                  onUpdate={(cycleStart, data) =>
+                    updateSettings.mutate({ cycleStart, data: { billing_cycle_start_day: data.billing_cycle_start_day, monthly_salary: data.monthly_salary } })
+                  }
+                  onDelete={(cycleStart) => deleteCycle.mutate(cycleStart)}
+                />
               </CardContent>
             </Card>
 
@@ -504,7 +609,7 @@ export default function SettingsPage() {
             </Card>
 
             {/* Change Password */}
-            <Card className="lg:col-span-2">
+            <Card>
               <CardHeader>
                 <CardTitle>Change Password</CardTitle>
                 <CardDescription>Keep your account secure with a strong password</CardDescription>
