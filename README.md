@@ -97,6 +97,38 @@ The app is **single-user**. JWT-based authentication protects all pages except t
 
 ---
 
+## Planned Features
+
+The following high-value features are identified for future implementation.
+
+### 1 · CSV / Excel Export
+Export any filtered expense list to a downloadable file.
+- Backend: single endpoint `GET /expenses/export?format=csv` accepting the same filter params as the list endpoint (`start_date`, `end_date`, `category_id`, `payment_method_id`, `description`), streaming a CSV response with appropriate `Content-Disposition` headers.
+- Frontend: a download button in the Expenses page toolbar that constructs the URL from the current active filters and triggers a browser download — no extra page or modal needed.
+
+### 2 · Budget Limits per Category
+Set a per-cycle spending cap per category and track progress against it.
+- Backend: new `CategoryBudget` table (`category_id`, `cycle_start`, `limit_amount`); CRUD endpoints under `/settings/budgets`.
+- Dashboard: replace the flat category bar chart with a progress-bar variant — each bar fills toward the budget limit, turning amber at 80 % and red when exceeded.
+- Settings: add a "Budget" column to the Categories list where a per-cycle limit can be typed in inline.
+
+### 3 · Expense Notes Field
+Attach free-text context to any expense — useful for reconciling bank statements.
+- Backend: add a nullable `notes` column to the `expenses` table (Alembic migration required); expose it in `ExpenseCreate`, `ExpenseUpdate`, and `ExpenseOut` schemas.
+- Frontend: optional `<textarea>` in the Add / Edit expense modal; show a truncated note in the table row with a tooltip for the full text.
+
+### 4 · Top-N Expenses Widget on Dashboard
+Surface the largest individual transactions of the selected billing cycle without leaving the Dashboard.
+- Frontend-only: query the existing `/expenses` endpoint with `page_size=5` and `order_by=amount desc` for the selected cycle's date window; render as a compact table card beside the category pie chart.
+- No backend changes required — the existing filter + sort params already support this.
+
+### 5 · Inline Row Editing on Expenses Table
+Quick edits without opening a modal — same interaction pattern already used in the Billing Cycles settings table.
+- Replace the pencil-icon → modal flow with an inline editable row (fields: date, description, amount, category, payment method) that confirms with ✓ / ✗ buttons.
+- Backend unchanged; reuse the existing `PUT /expenses/:id` endpoint.
+
+---
+
 ## Tech Stack
 
 | Layer        | Technology                                        |
