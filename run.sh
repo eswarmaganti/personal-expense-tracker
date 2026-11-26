@@ -73,6 +73,17 @@ else
   info "No running stack found — starting fresh."
 fi
 
+# ── Authenticate with GHCR ────────────────────────────────────────────────────
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  GHCR_USER="${GITHUB_ACTOR:-$(git config user.name 2>/dev/null || echo 'user')}"
+  info "Logging in to ghcr.io as '${GHCR_USER}'…"
+  echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin \
+    || die "docker login to ghcr.io failed — make sure GITHUB_TOKEN has the 'read:packages' scope."
+  success "Authenticated with ghcr.io."
+else
+  warn "GITHUB_TOKEN is not set — skipping GHCR login. Pull will fail for private images."
+fi
+
 # ── Pull images ───────────────────────────────────────────────────────────────
 info "Pulling images for ${RELEASE_TAG}…"
 ${COMPOSE} -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" pull
