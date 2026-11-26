@@ -495,7 +495,11 @@ npm run dev                    # http://localhost:5173
 
 ## Running with Docker
 
-A single command builds and starts all services:
+There are two compose files depending on whether you want to build from source or run a published release.
+
+### Option 1 — Build from source (`docker-compose.yml`)
+
+Builds both images locally from your working tree — use this during active development:
 
 ```bash
 # Copy and customise env
@@ -504,7 +508,22 @@ cp backend/.env.example backend/.env   # set SECRET_KEY
 docker compose up --build
 ```
 
-**Service startup order:**
+### Option 2 — Run a published release (`docker-compose.release.yml`)
+
+Pulls pre-built images from GHCR without touching any source code — the cleanest way to run the app locally:
+
+```bash
+# Pull and start the latest release
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+
+# Pin to a specific release tag
+RELEASE_TAG=v1.2.0 docker compose -f docker-compose.release.yml up -d
+```
+
+> Images are public on GHCR — no `docker login` required.
+
+**Service startup order (both compose files):**
 1. `backend` — `Base.metadata.create_all()` auto-creates all tables on startup
 2. `frontend` — starts after backend is healthy
 
@@ -522,6 +541,8 @@ To seed the admin user inside the running container:
 
 ```bash
 docker compose exec backend python seed_admin.py
+# or, for the release compose file:
+docker compose -f docker-compose.release.yml exec backend python seed_admin.py
 ```
 
 ---
@@ -548,31 +569,51 @@ docker compose exec backend python seed_admin.py
 
 ## CI / CD
 
-Two GitHub Actions workflows run on every push / PR to `main` or `develop`, scoped by path so a backend-only commit does not trigger the frontend pipeline.
-
 ### Backend CI (`.github/workflows/backend-ci.yml`)
 
+Runs on every push / PR to `main` or `develop` that touches `backend/`.
+
 ```
-Lint (ruff check + format --check)
+Lint (ruff check)
     ↓
 Test (pytest on Python 3.11 × 3.12 matrix, coverage XML artifact)
     ↓
-Docker Build (cached, push=false)
+Docker Build & Push — tags image with commit SHA (push only, not on PRs)
 ```
 
 ### Frontend CI (`.github/workflows/frontend-ci.yml`)
 
+Runs on every push / PR to `main` or `develop` that touches `frontend/`.
+
 ```
-Lint + Type-check (eslint --max-warnings 0 + tsc --noEmit)
+Lint + Type-check (eslint + tsc --noEmit)
     ↓
 Test (vitest --coverage, lcov artifact)
     ↓
 Build (tsc + vite build, dist/ artifact)
     ↓
-Docker Build (cached, push=false)
+Docker Build & Push — tags image with commit SHA (push only, not on PRs)
 ```
 
-Required GitHub secret: `SECRET_KEY` (set in repo Settings → Secrets).
+### Release (`.github/workflows/release.yml`)
+
+Triggers when a **GitHub Release is published**. Builds and pushes both images in parallel, applying two tags to each:
+
+| Tag | Purpose |
+|---|---|
+| `<release-tag>` (e.g. `v1.2.0`) | Immutable, pinnable |
+| `latest` | Always points to the newest release |
+
+This is the only workflow that moves the `latest` tag — CI builds on `main` only tag by commit SHA and never overwrite `latest`.
+
+```bash
+# After publishing a release, docker-compose.release.yml automatically
+# picks up the new images on the next pull:
+docker compose -f docker-compose.release.yml pull && \
+docker compose -f docker-compose.release.yml up -d
+```
+
+Required GitHub secret: `GITHUB_TOKEN` (automatically provided by Actions — no manual setup needed).
 
 ---
 
