@@ -110,9 +110,7 @@ jobs:
       - name: Build backend Docker image
         uses: docker/build-push-action@v6
         with:
-          tags: | 
-            ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
           context: ./backend
           file: ./backend/Dockerfile
           push: true

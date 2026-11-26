@@ -1,0 +1,49 @@
+# Production-style compose file that pulls pre-built images from GHCR.
+# Always tracks the latest published release — no local source build required.
+#
+# Usage:
+#   docker compose -f docker-compose.release.yml pull
+#   docker compose -f docker-compose.release.yml up -d
+#
+# Override the image tag by setting the RELEASE_TAG env var (default: latest):
+#   RELEASE_TAG=v1.2.0 docker compose -f docker-compose.release.yml up -d
+
+services:
+  # ── Backend ───────────────────────────────────────────────────────────────
+  backend:
+    image: ghcr.io/eswarmaganti/personal-expense-tracker/backend:${RELEASE_TAG:-latest}
+    container_name: expense-tracker-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////data/expense.db
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      CORS_ORIGINS: "http://localhost,http://localhost:80,http://127.0.0.1"
+    volumes:
+      # Persist the SQLite database file across container restarts
+      - sqlite_data:/data
+    ports:
+      # Expose directly for local API testing / Swagger UI
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  frontend:
+    image: ghcr.io/eswarmaganti/personal-expense-tracker/frontend:${RELEASE_TAG:-latest}
+    container_name: expense-tracker-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  sqlite_data:
+    driver: local

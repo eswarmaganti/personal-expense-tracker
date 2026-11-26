@@ -130,9 +130,7 @@ jobs:
       - name: Build frontend Docker image
         uses: docker/build-push-action@v6
         with:
-          tags: | 
-            ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
