@@ -1,10 +1,21 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Category, Expense, FixedExpense, PaymentMethod, User, UserSettings
+from app.models import (
+    Category,
+    Expense,
+    FixedExpense,
+    PaymentMethod,
+    User,
+)
 from app.schemas import (
+    BillingCycleSettingsOut,
+    BillingCycleSettingsUpdate,
     CategoryCreate,
     CategoryOut,
     CategoryUpdate,
@@ -14,8 +25,6 @@ from app.schemas import (
     PaymentMethodCreate,
     PaymentMethodOut,
     PaymentMethodUpdate,
-    UserSettingsOut,
-    UserSettingsUpdate,
 )
 
 
@@ -35,37 +44,60 @@ def fe_to_out(fe: FixedExpense) -> FixedExpenseOut:
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
-# ── General Settings ──────────────────────────────────────────────────────────
+# ── Per-Cycle Settings ────────────────────────────────────────────────────────
 
 
-@router.get("", response_model=UserSettingsOut)
-def get_settings(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    s = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    if not s:
-        s = UserSettings(user_id=current_user.id)
-        db.add(s)
-        db.commit()
-        db.refresh(s)
-    return s
-
-
-@router.put("", response_model=UserSettingsOut)
-def update_settings(
-    body: UserSettingsUpdate,
+@router.get("/cycle/{cycle_start}", response_model=BillingCycleSettingsOut)
+def get_cycle_settings(
+    cycle_start: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    s = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    if not s:
-        s = UserSettings(user_id=current_user.id)
-        db.add(s)
+    """Return the billing-cycle settings for the given cycle_start (YYYY-MM-DD).
+    If no row exists yet, seeds it from the most recent previous cycle (or defaults).
+    """
+    # Import here to avoid circular import — dashboard helper owns the seed logic
+    from app.routers.dashboard import _get_or_seed_cycle_settings
+
+    try:
+        cycle_date = date.fromisoformat(cycle_start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="cycle_start must be YYYY-MM-DD") from exc
+
+    return _get_or_seed_cycle_settings(db, current_user.id, cycle_date)
+
+
+@router.put("/cycle/{cycle_start}", response_model=BillingCycleSettingsOut)
+def update_cycle_settings(
+    cycle_start: str,
+    body: BillingCycleSettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update salary and/or start-day for one specific billing cycle only."""
+    from app.routers.dashboard import _get_or_seed_cycle_settings
+
+    try:
+        cycle_date = date.fromisoformat(cycle_start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="cycle_start must be YYYY-MM-DD") from exc
+
+    # Ensure the row exists before updating
+    row = _get_or_seed_cycle_settings(db, current_user.id, cycle_date)
+
     if body.billing_cycle_start_day is not None:
-        s.billing_cycle_start_day = body.billing_cycle_start_day
+        row.billing_cycle_start_day = body.billing_cycle_start_day
     if body.monthly_salary is not None:
-        s.monthly_salary = body.monthly_salary
-    db.commit()
-    db.refresh(s)
-    return s
+        row.monthly_salary = body.monthly_salary
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflict updating cycle settings") from exc
+
+    db.refresh(row)
+    return row
 
 
 # ── Categories ────────────────────────────────────────────────────────────────

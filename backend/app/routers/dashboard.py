@@ -3,11 +3,19 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Category, Expense, FixedExpense, PaymentMethod, User, UserSettings
+from app.models import (
+    Category,
+    Expense,
+    FixedExpense,
+    PaymentMethod,
+    User,
+    UserBillingCycleSettings,
+)
 from app.schemas import (
     BillingCycleOut,
     CategoryBreakdown,
@@ -108,6 +116,67 @@ def _all_past_complete_cycles(start_day: int, earliest: date) -> list[tuple[date
     return cycles
 
 
+def _get_or_seed_cycle_settings(
+    db: Session,
+    user_id: int,
+    cycle_start: date,
+) -> "UserBillingCycleSettings":
+    """Return the per-cycle settings row for `cycle_start`, creating it if absent.
+
+    Seed order:
+      1. Exact row already exists → return it.
+      2. Copy from most recent previous cycle row.
+      3. Fall back to hardcoded defaults (salary=0, start_day=1).
+    """
+    row = (
+        db.query(UserBillingCycleSettings)
+        .filter(
+            UserBillingCycleSettings.user_id == user_id,
+            UserBillingCycleSettings.cycle_start == str(cycle_start),
+        )
+        .first()
+    )
+    if row:
+        return row
+
+    # Copy from the most recent previous cycle
+    prev = (
+        db.query(UserBillingCycleSettings)
+        .filter(
+            UserBillingCycleSettings.user_id == user_id,
+            UserBillingCycleSettings.cycle_start < str(cycle_start),
+        )
+        .order_by(UserBillingCycleSettings.cycle_start.desc())
+        .first()
+    )
+
+    salary = prev.monthly_salary if prev else 0.0
+    start_day = prev.billing_cycle_start_day if prev else 1
+
+    new_row = UserBillingCycleSettings(
+        user_id=user_id,
+        cycle_start=str(cycle_start),
+        billing_cycle_start_day=start_day,
+        monthly_salary=salary,
+    )
+    db.add(new_row)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Race condition: another request already inserted the same row
+        db.rollback()
+        return (
+            db.query(UserBillingCycleSettings)
+            .filter(
+                UserBillingCycleSettings.user_id == user_id,
+                UserBillingCycleSettings.cycle_start == str(cycle_start),
+            )
+            .first()
+        )
+    db.refresh(new_row)
+    return new_row
+
+
 @router.get("/summary", response_model=DashboardSummary)
 def get_summary(
     cycle_start: str | None = Query(None, description="YYYY-MM-DD — override billing cycle start"),
@@ -115,18 +184,23 @@ def get_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
-    monthly_salary = settings.monthly_salary if settings else 0.0
-
+    # Determine the cycle window first (need cycle_start_date before fetching settings)
     if cycle_start and cycle_end:
         # caller supplied an explicit window (e.g. a past billing cycle)
         start_str, end_str = cycle_start, cycle_end
         cycle_start_date = date.fromisoformat(cycle_start)
         cycle_end_date = date.fromisoformat(cycle_end)
     else:
-        cycle_start_date, cycle_end_date = _billing_period(start_day)
+        # Bootstrap: use start_day=1 to find today's cycle; the real start_day is in the row
+        cycle_start_date, cycle_end_date = _billing_period(1)
+        # Refine using the actual start_day once we have the row (seed may update it)
+        cs_row = _get_or_seed_cycle_settings(db, current_user.id, cycle_start_date)
+        cycle_start_date, cycle_end_date = _billing_period(cs_row.billing_cycle_start_day)
         start_str, end_str = str(cycle_start_date), str(cycle_end_date)
+
+    cs_settings = _get_or_seed_cycle_settings(db, current_user.id, cycle_start_date)
+    start_day = cs_settings.billing_cycle_start_day
+    monthly_salary = cs_settings.monthly_salary
 
     rows = (
         db.query(Expense)
@@ -163,6 +237,8 @@ def get_summary(
         past_cycles = _all_past_complete_cycles(start_day, earliest_date)
         for cs, ce in past_cycles:
             cs_str, ce_str = str(cs), str(ce)
+            past_settings = _get_or_seed_cycle_settings(db, current_user.id, cs)
+            past_salary = past_settings.monthly_salary
             cycle_expenses = (
                 db.query(func.sum(Expense.amount))
                 .filter(
@@ -173,7 +249,7 @@ def get_summary(
                 .scalar()
                 or 0.0
             )
-            yearly_savings += monthly_salary - cycle_expenses
+            yearly_savings += past_salary - cycle_expenses
 
     return DashboardSummary(
         current_month=start_str[:7],
@@ -196,13 +272,18 @@ def monthly_trend(
     current_user: User = Depends(get_current_user),
 ):
     """Returns aggregates for the past N billing cycles."""
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
-    monthly_salary = settings.monthly_salary if settings else 0.0
+    # Derive start_day from the current cycle's settings row
+    current_cycle_start, _ = _billing_period(1)
+    current_cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
+    start_day = current_cs_row.billing_cycle_start_day
+    # Re-derive with the real start_day
+    current_cycle_start, _ = _billing_period(start_day)
 
     result = []
     for cycle_start, cycle_end in _past_billing_cycles(start_day, months):
         start_str, end_str = str(cycle_start), str(cycle_end)
+        cycle_settings = _get_or_seed_cycle_settings(db, current_user.id, cycle_start)
+        monthly_salary = cycle_settings.monthly_salary
         rows = (
             db.query(Expense)
             .filter(
@@ -236,8 +317,9 @@ def category_breakdown(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
+    current_cycle_start, _ = _billing_period(1)
+    cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
+    start_day = cs_row.billing_cycle_start_day
 
     if not start_date or not end_date:
         cs, ce = _billing_period(start_day)
@@ -269,8 +351,9 @@ def payment_breakdown(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
+    current_cycle_start, _ = _billing_period(1)
+    cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
+    start_day = cs_row.billing_cycle_start_day
 
     if not start_date or not end_date:
         cs, ce = _billing_period(start_day)
@@ -300,8 +383,9 @@ def list_billing_cycles(
     Return every billing cycle from January 2026 up to and including the current cycle,
     most recent first. Each entry carries start/end dates and an is_current flag.
     """
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
+    current_cycle_start, _ = _billing_period(1)
+    cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
+    start_day = cs_row.billing_cycle_start_day
 
     current_start, current_end = _billing_period(start_day)
 
@@ -372,8 +456,9 @@ def fixed_expenses_status(
     expense record anywhere within the billing cycle window (regardless of exact date —
     the user may have moved the row to its actual deduction date).
     """
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
+    current_cycle_start, _ = _billing_period(1)
+    cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
+    start_day = cs_row.billing_cycle_start_day
     win_start, win_end = _resolve_cycle_window(cycle_start, start_day)
 
     eligible_ids = [
@@ -424,8 +509,9 @@ def apply_fixed_expenses(
     """
     from app.routers.settings import fe_to_out  # local import avoids circular import
 
-    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
-    start_day = settings.billing_cycle_start_day if settings else 1
+    current_cycle_start, _ = _billing_period(1)
+    cs_row = _get_or_seed_cycle_settings(db, current_user.id, current_cycle_start)
+    start_day = cs_row.billing_cycle_start_day
     win_start, win_end = _resolve_cycle_window(cycle_start, start_day)
 
     # Post on the cycle start date so the expense falls within the cycle window.

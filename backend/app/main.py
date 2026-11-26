@@ -4,7 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
-from app.models import Category, Expense, FixedExpense, PaymentMethod, User, UserSettings  # noqa: F401 — registers models
+from app.models import (  # noqa: F401 — registers models
+    Category,
+    Expense,
+    FixedExpense,
+    PaymentMethod,
+    User,
+    UserBillingCycleSettings,
+)
 from app.routers import auth_router, dashboard_router, expenses_router, settings_router
 
 # create all tables on startup (Alembic handles migrations in production)

@@ -25,8 +25,8 @@ class User(Base):
         "PaymentMethod", back_populates="user", cascade="all, delete-orphan"
     )
     expenses = relationship("Expense", back_populates="user", cascade="all, delete-orphan")
-    settings = relationship(
-        "UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    billing_cycle_settings = relationship(
+        "UserBillingCycleSettings", back_populates="user", cascade="all, delete-orphan"
     )
     fixed_expenses = relationship(
         "FixedExpense", back_populates="user", cascade="all, delete-orphan"
@@ -80,15 +80,26 @@ class Expense(Base):
     payment_method = relationship("PaymentMethod", back_populates="expenses")
 
 
-class UserSettings(Base):
-    __tablename__ = "user_settings"
+class UserBillingCycleSettings(Base):
+    """Per-billing-cycle snapshot of salary and start-day for a user.
+
+    One row per (user_id, cycle_start). New cycles are auto-seeded from the
+    most recent previous row when the dashboard is first loaded.
+    """
+
+    __tablename__ = "user_billing_cycle_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    billing_cycle_start_day = Column(Integer, default=12)  # 1–28, default 12th
-    monthly_salary = Column(Float, default=0.0)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    cycle_start = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    billing_cycle_start_day = Column(Integer, nullable=False, default=1)  # 1–28
+    monthly_salary = Column(Float, nullable=False, default=0.0)
+    created_at = Column(String, default=_now)
+    updated_at = Column(String, default=_now, onupdate=_now)
 
-    user = relationship("User", back_populates="settings")
+    __table_args__ = (UniqueConstraint("user_id", "cycle_start", name="uq_ubcs_user_cycle"),)
+
+    user = relationship("User", back_populates="billing_cycle_settings")
 
 
 class FixedExpense(Base):

@@ -12,6 +12,11 @@ FROM python:3.11-slim-bookworm AS runtime
 
 WORKDIR /app
 
+# Install sqlite3 CLI
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends sqlite3 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 

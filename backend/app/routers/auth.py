@@ -9,7 +9,7 @@ from app.dependencies import (
     decode_token,
     get_current_user,
 )
-from app.models import User, UserSettings
+from app.models import User, UserBillingCycleSettings
 from app.schemas import (
     ChangePassword,
     RefreshRequest,
@@ -36,8 +36,18 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
     )
     db.add(user)
     db.flush()
-    # create default settings row
-    db.add(UserSettings(user_id=user.id))
+    # Seed the first billing cycle settings row with defaults
+    from app.routers.dashboard import _billing_period
+
+    first_cycle_start, _ = _billing_period(1)  # start_day=1 as initial default
+    db.add(
+        UserBillingCycleSettings(
+            user_id=user.id,
+            cycle_start=str(first_cycle_start),
+            billing_cycle_start_day=1,
+            monthly_salary=0.0,
+        )
+    )
     db.commit()
     db.refresh(user)
     return user
