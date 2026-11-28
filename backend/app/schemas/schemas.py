@@ -183,7 +183,9 @@ class MonthlySummary(BaseModel):
 
 class CategoryBreakdown(BaseModel):
     category: str
+    category_id: int
     amount: float
+    budget_limit: float = 0.0
 
 
 class PaymentBreakdown(BaseModel):
@@ -209,3 +211,18 @@ class BillingCycleOut(BaseModel):
     start_date: str  # YYYY-MM-DD
     end_date: str  # YYYY-MM-DD
     is_current: bool
+
+
+# ── Category Budgets ──────────────────────────────────────────────────────────
+
+
+class CategoryBudgetOut(BaseModel):
+    category_id: int
+    cycle_start: str
+    limit_amount: float
+
+    model_config = {"from_attributes": True}
+
+
+class CategoryBudgetUpsert(BaseModel):
+    limit_amount: float = Field(..., ge=0)

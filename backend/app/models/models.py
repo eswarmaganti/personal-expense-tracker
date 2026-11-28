@@ -31,6 +31,9 @@ class User(Base):
     fixed_expenses = relationship(
         "FixedExpense", back_populates="user", cascade="all, delete-orphan"
     )
+    category_budgets = relationship(
+        "CategoryBudget", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Category(Base):
@@ -100,6 +103,28 @@ class UserBillingCycleSettings(Base):
     __table_args__ = (UniqueConstraint("user_id", "cycle_start", name="uq_ubcs_user_cycle"),)
 
     user = relationship("User", back_populates="billing_cycle_settings")
+
+
+class CategoryBudget(Base):
+    """Per-billing-cycle spending limit for a user's category.
+
+    One row per (user_id, category_id, cycle_start). Carry-forward seeding
+    happens in the settings router when a cycle is first viewed.
+    """
+
+    __tablename__ = "category_budgets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    cycle_start = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    limit_amount = Column(Float, nullable=False, default=0.0)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "category_id", "cycle_start", name="uq_cb_user_cat_cycle"),
+    )
+
+    user = relationship("User", back_populates="category_budgets")
 
 
 class FixedExpense(Base):

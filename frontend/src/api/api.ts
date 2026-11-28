@@ -58,7 +58,8 @@ export interface DashboardSummary {
   yearly_savings: number
 }
 export interface MonthlySummary { month: string; total: number; transaction_count: number; salary: number; savings: number; cycle_end?: string }
-export interface CategoryBreakdown { category: string; amount: number }
+export interface CategoryBudgetOut { category_id: number; cycle_start: string; limit_amount: number }
+export interface CategoryBreakdown { category: string; amount: number; category_id: number; budget_limit: number }
 export interface PaymentBreakdown { payment_method: string; amount: number }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -144,4 +145,9 @@ export const settingsApi = {
   createFixedExpense: (data: FixedExpenseInput) => apiClient.post<FixedExpenseOut>('/settings/fixed-expenses', data).then(r => r.data),
   updateFixedExpense: (id: number, data: Partial<FixedExpenseInput>) => apiClient.put<FixedExpenseOut>(`/settings/fixed-expenses/${id}`, data).then(r => r.data),
   deleteFixedExpense: (id: number) => apiClient.delete(`/settings/fixed-expenses/${id}`),
+  // budgets
+  getBudgets: (cycleStart: string) =>
+    apiClient.get<CategoryBudgetOut[]>(`/settings/budgets/${cycleStart}`).then(r => r.data),
+  upsertBudget: (cycleStart: string, categoryId: number, data: { limit_amount: number }) =>
+    apiClient.put<CategoryBudgetOut>(`/settings/budgets/${cycleStart}/${categoryId}`, data).then(r => r.data),
 }

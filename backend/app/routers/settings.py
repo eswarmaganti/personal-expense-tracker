@@ -8,6 +8,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import (
     Category,
+    CategoryBudget,
     Expense,
     FixedExpense,
     PaymentMethod,
@@ -17,6 +18,8 @@ from app.models import (
 from app.schemas import (
     BillingCycleSettingsOut,
     BillingCycleSettingsUpdate,
+    CategoryBudgetOut,
+    CategoryBudgetUpsert,
     CategoryCreate,
     CategoryOut,
     CategoryUpdate,
@@ -409,3 +412,160 @@ def delete_fixed_expense(
 
 # ── Shared helper (imported by dashboard router) ──────────────────────────────
 # (fe_to_out is defined at the top of this module and importable)
+
+
+# ── Category Budgets ──────────────────────────────────────────────────────────
+
+
+def _seed_budgets_for_cycle(db: Session, user_id: int, cycle_start_str: str) -> None:
+    """Seed CategoryBudget rows for *cycle_start_str* from the most recent previous
+    cycle that has at least one budget row (carry-forward).  No-op if rows already
+    exist for this cycle.  Wrapped in IntegrityError guard for concurrent safety.
+    """
+    # No-op if already seeded
+    exists = (
+        db.query(CategoryBudget)
+        .filter(
+            CategoryBudget.user_id == user_id,
+            CategoryBudget.cycle_start == cycle_start_str,
+        )
+        .first()
+    )
+    if exists:
+        return
+
+    # Find most recent previous cycle with at least one budget row
+    prev = (
+        db.query(CategoryBudget.cycle_start)
+        .filter(
+            CategoryBudget.user_id == user_id,
+            CategoryBudget.cycle_start < cycle_start_str,
+        )
+        .order_by(CategoryBudget.cycle_start.desc())
+        .first()
+    )
+
+    # Build lookup {category_id: limit_amount} from previous cycle (empty if none)
+    prev_limits: dict[int, float] = {}
+    if prev:
+        prev_rows = (
+            db.query(CategoryBudget)
+            .filter(
+                CategoryBudget.user_id == user_id,
+                CategoryBudget.cycle_start == prev.cycle_start,
+            )
+            .all()
+        )
+        prev_limits = {r.category_id: r.limit_amount for r in prev_rows}
+
+    categories = db.query(Category).filter(Category.user_id == user_id).all()
+
+    new_rows = [
+        CategoryBudget(
+            user_id=user_id,
+            category_id=cat.id,
+            cycle_start=cycle_start_str,
+            limit_amount=prev_limits.get(cat.id, 0.0),
+        )
+        for cat in categories
+    ]
+
+    if not new_rows:
+        return
+
+    try:
+        db.add_all(new_rows)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+
+@router.get("/budgets/{cycle_start}", response_model=list[CategoryBudgetOut])
+def get_budgets(
+    cycle_start: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return one CategoryBudgetOut per user category for the given cycle.
+    Seeds from the most recent previous cycle on first access (carry-forward).
+    """
+    try:
+        date.fromisoformat(cycle_start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="cycle_start must be YYYY-MM-DD") from exc
+
+    _seed_budgets_for_cycle(db, current_user.id, cycle_start)
+
+    rows = (
+        db.query(Category, CategoryBudget)
+        .outerjoin(
+            CategoryBudget,
+            (CategoryBudget.category_id == Category.id)
+            & (CategoryBudget.cycle_start == cycle_start)
+            & (CategoryBudget.user_id == current_user.id),
+        )
+        .filter(Category.user_id == current_user.id)
+        .all()
+    )
+
+    return [
+        CategoryBudgetOut(
+            category_id=cat.id,
+            cycle_start=cycle_start,
+            limit_amount=budget.limit_amount if budget else 0.0,
+        )
+        for cat, budget in rows
+    ]
+
+
+@router.put("/budgets/{cycle_start}/{category_id}", response_model=CategoryBudgetOut)
+def upsert_budget(
+    cycle_start: str,
+    category_id: int,
+    body: CategoryBudgetUpsert,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert the budget limit for one category in a given billing cycle."""
+    try:
+        date.fromisoformat(cycle_start)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="cycle_start must be YYYY-MM-DD") from exc
+
+    cat = (
+        db.query(Category)
+        .filter(Category.id == category_id, Category.user_id == current_user.id)
+        .first()
+    )
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    row = (
+        db.query(CategoryBudget)
+        .filter(
+            CategoryBudget.user_id == current_user.id,
+            CategoryBudget.category_id == category_id,
+            CategoryBudget.cycle_start == cycle_start,
+        )
+        .first()
+    )
+
+    if row is None:
+        row = CategoryBudget(
+            user_id=current_user.id,
+            category_id=category_id,
+            cycle_start=cycle_start,
+            limit_amount=body.limit_amount,
+        )
+        db.add(row)
+    else:
+        row.limit_amount = body.limit_amount
+
+    db.commit()
+    db.refresh(row)
+
+    return CategoryBudgetOut(
+        category_id=row.category_id,
+        cycle_start=row.cycle_start,
+        limit_amount=row.limit_amount,
+    )

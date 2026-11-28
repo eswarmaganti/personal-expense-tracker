@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -7,7 +7,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { categoryDotColor, categoryColorById } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
-import { settingsApi, dashboardApi, type FixedExpenseOut, type BillingCycleOut, type BillingCycleSettingsOut } from '@/api/api'
+import { settingsApi, dashboardApi, type CategoryOut, type CategoryBudgetOut, type FixedExpenseOut, type BillingCycleOut, type BillingCycleSettingsOut } from '@/api/api'
 import {
   fixedExpenseSchema,
   profileSchema,
@@ -262,6 +262,168 @@ function FixedExpensesTable({
   )
 }
 
+// ── Category + Budget table ───────────────────────────────────────────────────
+
+function CategoryBudgetTable({
+  categories,
+  budgets,
+  billingCycles,
+  selectedCycle,
+  onCycleChange,
+  onBudgetSave,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  categories: CategoryOut[]
+  budgets: CategoryBudgetOut[]
+  billingCycles: BillingCycleOut[]
+  selectedCycle: string
+  onCycleChange: (c: string) => void
+  onBudgetSave: (categoryId: number, limitAmount: number) => void
+  onCreate: (name: string) => void
+  onUpdate: (id: number, name: string) => void
+  onDelete: (id: number) => void
+}) {
+  const [editId, setEditId] = useState<number | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editBudget, setEditBudget] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const [newName, setNewName] = useState('')
+
+  const budgetMap: Record<number, number> = {}
+  for (const b of budgets) {
+    budgetMap[b.category_id] = b.limit_amount
+  }
+
+  function startEdit(item: CategoryOut) {
+    setEditId(item.id)
+    setEditName(item.name)
+    setEditBudget(String(budgetMap[item.id] ?? 0))
+  }
+
+  function cancelEdit() {
+    setEditId(null)
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Cycle selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-muted-foreground">Billing Cycle:</span>
+        <Select
+          value={selectedCycle}
+          onChange={(e) => onCycleChange(e.target.value)}
+          className="w-auto"
+        >
+          {billingCycles.map((c) => (
+            <option key={c.start_date} value={c.start_date}>{c.label}</option>
+          ))}
+        </Select>
+      </div>
+
+      {/* Table header */}
+      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 border-b pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>Name</span>
+        <span className="text-right pr-1">Budget (₹)</span>
+        <span />
+        <span>Actions</span>
+      </div>
+
+      {/* Rows */}
+      {categories.map((item) => {
+        const isEditing = editId === item.id
+        const budgetAmt = budgetMap[item.id] ?? 0
+
+        if (isEditing) {
+          return (
+            <div key={item.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 rounded-md px-1 py-1 bg-muted/40">
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="h-7 text-sm" autoFocus placeholder="Category name" />
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                value={editBudget}
+                onChange={(e) => setEditBudget(e.target.value)}
+                className="h-7 w-28 text-sm text-right"
+                placeholder="Budget"
+              />
+              <span className="text-xs text-muted-foreground">₹</span>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => {
+                    onUpdate(item.id, editName)
+                    onBudgetSave(item.id, parseFloat(editBudget) || 0)
+                    cancelEdit()
+                  }}
+                  className="text-primary hover:text-primary/80"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+                <button onClick={cancelEdit} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )
+        }
+
+        return (
+          <div key={item.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 rounded-md px-1 py-1 hover:bg-muted/40 transition-colors">
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className="inline-block h-3 w-3 shrink-0 rounded-full"
+                style={{ backgroundColor: categoryDotColor(item.id) }}
+                title="Category color"
+              />
+              <Badge className={`border-0 text-xs ${categoryColorById(item.id)}`}>{item.name}</Badge>
+            </div>
+            <span className="text-sm text-right tabular-nums">
+              {budgetAmt > 0 ? formatCurrency(budgetAmt) : <span className="text-muted-foreground">—</span>}
+            </span>
+            <span />
+            <div className="flex gap-1.5">
+              <button onClick={() => startEdit(item)} className="text-muted-foreground hover:text-foreground" title="Edit">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button onClick={() => setConfirmDeleteId(item.id)} className="text-muted-foreground hover:text-destructive" title="Delete">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )
+      })}
+
+      {/* Total count row */}
+      <div className="flex items-center justify-between border-t pt-2 text-xs text-muted-foreground">
+        <span>{categories.length} {categories.length === 1 ? 'record' : 'records'}</span>
+      </div>
+
+      {/* Add new */}
+      <div className="flex gap-2 pt-1">
+        <Input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && newName.trim()) { onCreate(newName.trim()); setNewName('') } }}
+          placeholder="New category…"
+          className="flex-1"
+        />
+        <Button size="sm" onClick={() => { if (newName.trim()) { onCreate(newName.trim()); setNewName('') } }}>
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {confirmDeleteId !== null && (
+        <ConfirmDialog
+          message="This item will be permanently deleted."
+          onConfirm={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null) }}
+          onCancel={() => setConfirmDeleteId(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Billing Cycles management table ──────────────────────────────────────────
 
 function BillingCyclesTable({
@@ -495,6 +657,30 @@ export default function SettingsPage() {
     },
   })
 
+  // ── Budget cycle selection + query ───────────────────────────────────────
+  const [selectedBudgetCycle, setSelectedBudgetCycle] = useState('')
+
+  useEffect(() => {
+    if (!selectedBudgetCycle && billingCycles.length > 0) {
+      const current = billingCycles.find(c => c.is_current)
+      if (current) setSelectedBudgetCycle(current.start_date)
+    }
+  }, [billingCycles, selectedBudgetCycle])
+
+  const { data: budgets } = useQuery({
+    queryKey: ['budgets', selectedBudgetCycle],
+    queryFn: () => settingsApi.getBudgets(selectedBudgetCycle),
+    enabled: !!selectedBudgetCycle,
+  })
+
+  const upsertBudgetMutation = useMutation({
+    mutationFn: ({ cycleStart, categoryId, data }: { cycleStart: string; categoryId: number; data: { limit_amount: number } }) =>
+      settingsApi.upsertBudget(cycleStart, categoryId, data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['budgets', variables.cycleStart] })
+    },
+  })
+
   // ── Profile form ──────────────────────────────────────────────────────────
   const profileForm = useForm<ProfileInput>({
     resolver: zodResolver(profileSchema),
@@ -552,13 +738,18 @@ export default function SettingsPage() {
                 <CardDescription>Classify your expenses</CardDescription>
               </CardHeader>
               <CardContent>
-                <InlineList
-                  items={categories}
+                <CategoryBudgetTable
+                  categories={categories}
+                  budgets={budgets ?? []}
+                  billingCycles={billingCycles}
+                  selectedCycle={selectedBudgetCycle}
+                  onCycleChange={setSelectedBudgetCycle}
+                  onBudgetSave={(categoryId, limitAmount) =>
+                    upsertBudgetMutation.mutate({ cycleStart: selectedBudgetCycle, categoryId, data: { limit_amount: limitAmount } })
+                  }
                   onCreate={(name) => createCat.mutate({ name })}
                   onUpdate={(id, name) => updateCat.mutate({ id, data: { name } })}
                   onDelete={(id) => deleteCat.mutate(id)}
-                  placeholder="New category…"
-                  showColorSwatch
                 />
               </CardContent>
             </Card>
