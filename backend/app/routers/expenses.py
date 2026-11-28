@@ -38,7 +38,7 @@ def _get_expense_or_404(expense_id: int, user_id: int, db: Session) -> Expense:
 @router.get("", response_model=ExpensePage)
 def list_expenses(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),
     start_date: str | None = Query(None, description="YYYY-MM-DD"),
     end_date: str | None = Query(None, description="YYYY-MM-DD"),
     category_id: int | None = None,

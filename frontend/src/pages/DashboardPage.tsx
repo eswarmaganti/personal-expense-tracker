@@ -2,14 +2,16 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   dashboardApi,
+  expensesApi,
   type DashboardSummary,
   type MonthlySummary,
   type CategoryBreakdown,
   type PaymentBreakdown,
   type BillingCycleOut,
 } from "@/api/api";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, categoryColorById } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import {
   BarChart,
@@ -31,7 +33,11 @@ import {
   CalendarRange,
   TrendingDown,
   Sparkles,
+  FileDown,
 } from "lucide-react";
+import { pdf } from "@react-pdf/renderer";
+import { CycleStatementPDF } from "@/components/pdf/CycleStatementPDF";
+import { useAuthStore } from "@/store/authStore";
 
 const PIE_COLORS = [
   "#3b82f6",
@@ -124,6 +130,9 @@ export default function DashboardPage() {
   const [selectedCycle, setSelectedCycle] = useState<string>("current");
   const [appliedCycles, setAppliedCycles] = useState<Set<string>>(new Set());
   const [trendYear, setTrendYear] = useState<number>(new Date().getFullYear());
+  const [exporting, setExporting] = useState(false);
+
+  const { user } = useAuthStore();
 
   const { data: billingCycles = [] } = useQuery<BillingCycleOut[]>({
     queryKey: ["billing-cycles"],
@@ -197,6 +206,45 @@ export default function DashboardPage() {
     (c) => `${c.start_date}|${c.end_date}` === selectedCycle,
   );
 
+  async function exportPDF() {
+    if (!summary) return;
+    // Prefer the cycle window from the selector; fall back to what the summary returned
+    const start = cycleStart ?? summary.cycle_start;
+    const end = cycleEnd ?? summary.cycle_end;
+    setExporting(true);
+    try {
+      const expensePage = await expensesApi.list({
+        start_date: start,
+        end_date: end,
+        page_size: 500,
+      });
+      const cycleLabel = activeCycle?.label ?? `${start} – ${end}`;
+      const blob = await pdf(
+        <CycleStatementPDF
+          userName={user?.name ?? "User"}
+          cycleLabel={cycleLabel}
+          cycleStart={start}
+          cycleEnd={end}
+          summary={summary}
+          catBreakdown={catBreakdown ?? []}
+          payBreakdown={payBreakdown ?? []}
+          expenses={expensePage.items}
+        />,
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `statement-${start}-${end}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("[Export PDF] failed:", err);
+      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -206,24 +254,36 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">Your spending overview</p>
         </div>
 
-        {/* Billing cycle selector */}
-        <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5">
-          <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
-          <Select
-            value={selectedCycle}
-            onChange={(e) => setSelectedCycle(e.target.value)}
-            className="h-7 border-0 bg-transparent py-0 text-sm shadow-none focus:ring-0"
+        {/* Billing cycle selector + Export PDF */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5">
+            <CalendarRange className="h-4 w-4 shrink-0 text-primary" />
+            <Select
+              value={selectedCycle}
+              onChange={(e) => setSelectedCycle(e.target.value)}
+              className="h-7 border-0 bg-transparent py-0 text-sm shadow-none focus:ring-0"
+            >
+              {billingCycles.map((c) => (
+                <option
+                  key={`${c.start_date}|${c.end_date}`}
+                  value={`${c.start_date}|${c.end_date}`}
+                >
+                  {c.label}
+                  {c.is_current ? " (current)" : ""}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button
+            onClick={exportPDF}
+            disabled={exporting || !summary}
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
           >
-            {billingCycles.map((c) => (
-              <option
-                key={`${c.start_date}|${c.end_date}`}
-                value={`${c.start_date}|${c.end_date}`}
-              >
-                {c.label}
-                {c.is_current ? " (current)" : ""}
-              </option>
-            ))}
-          </Select>
+            <FileDown className="h-4 w-4" />
+            {exporting ? "Generating…" : "Export PDF"}
+          </Button>
         </div>
       </div>
 
@@ -284,43 +344,63 @@ export default function DashboardPage() {
             <CardTitle>Spend by Category</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart
-                data={catBreakdown ?? []}
-                layout="vertical"
-                margin={{ left: 10, right: 20 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  className="stroke-border"
-                />
-                <XAxis
-                  type="number"
-                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
-                  tick={{ fontSize: 11 }}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <YAxis
-                  type="category"
-                  dataKey="category"
-                  tick={{ fontSize: 12 }}
-                  width={90}
-                  stroke="hsl(var(--muted-foreground))"
-                />
-                <Tooltip
-                  cursor={false}
-                  formatter={(v: number) => [formatCurrency(v), "Amount"]}
-                  contentStyle={{
-                    background: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "6px",
-                  }}
-                  labelStyle={{ color: "hsl(var(--foreground))" }}
-                  itemStyle={{ color: "hsl(var(--foreground))" }}
-                />
-                <Bar dataKey="amount" fill="#ef4444" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {/* Legend — only shown when at least one category has a budget set */}
+            {(catBreakdown ?? []).some(c => c.budget_limit > 0) && (
+              <div className="mb-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                  On track
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  Near limit (≥80%)
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
+                  Over budget
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {(catBreakdown ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No expenses in this cycle.</p>
+              ) : (() => {
+                const maxSpend = Math.max(...(catBreakdown ?? []).map(c => c.amount), 1)
+                return (catBreakdown ?? []).map((c) => {
+                  const hasBudget = c.budget_limit > 0
+                  const pct = hasBudget
+                    ? Math.min((c.amount / c.budget_limit) * 100, 100)
+                    : (c.amount / maxSpend) * 100
+                  const fillClass = hasBudget
+                    ? pct >= 100 ? 'bg-red-500'
+                      : pct >= 80 ? 'bg-amber-500'
+                      : 'bg-emerald-500'
+                    : 'bg-blue-500'
+                  return (
+                    <div key={c.category} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium border-0', categoryColorById(c.category_id))}>
+                          {c.category}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatCurrency(c.amount)}
+                          {hasBudget && (
+                            <span className="text-muted-foreground/60"> / {formatCurrency(c.budget_limit)}</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={cn('h-full rounded-full transition-all', fillClass)}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
           </CardContent>
         </Card>
 

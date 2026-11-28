@@ -1,5 +1,6 @@
 from app.models.models import (
     Category,
+    CategoryBudget,
     Expense,
     FixedExpense,
     PaymentMethod,
@@ -10,6 +11,7 @@ from app.models.models import (
 __all__ = [
     "User",
     "Category",
+    "CategoryBudget",
     "PaymentMethod",
     "Expense",
     "UserBillingCycleSettings",

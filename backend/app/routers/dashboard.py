@@ -10,6 +10,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import (
     Category,
+    CategoryBudget,
     Expense,
     FixedExpense,
     PaymentMethod,
@@ -357,17 +358,34 @@ def category_breakdown(
         end_date = end_date or str(ce)
 
     rows = (
-        db.query(Category.name, func.sum(Expense.amount).label("total"))
+        db.query(Category.id, Category.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == Category.id)
         .filter(
             Expense.user_id == current_user.id,
             Expense.date >= start_date,
             Expense.date <= end_date,
         )
-        .group_by(Category.name)
+        .group_by(Category.id, Category.name)
         .all()
     )
-    return [CategoryBreakdown(category=r.name, amount=r.total) for r in rows]
+    budget_rows = (
+        db.query(CategoryBudget)
+        .filter(
+            CategoryBudget.user_id == current_user.id,
+            CategoryBudget.cycle_start == start_date,
+        )
+        .all()
+    )
+    budgets = {b.category_id: b.limit_amount for b in budget_rows}
+    return [
+        CategoryBreakdown(
+            category=r.name,
+            category_id=r.id,
+            amount=r.total,
+            budget_limit=budgets.get(r.id, 0.0),
+        )
+        for r in rows
+    ]
 
 
 @router.get("/payment-breakdown", response_model=list[PaymentBreakdown])
